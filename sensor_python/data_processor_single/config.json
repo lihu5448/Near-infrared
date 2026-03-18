@@ -1,0 +1,6 @@
+{
+    "input_file": "D:\\Desktop\\sensor_data\\amaoComDataLog14.86.txt",
+    "output_folder": "D:\\Desktop\\sensor_python\\data_output",
+    "default_humidity": 14.86,
+    "output_filename": "1_12.86.txt"
+}

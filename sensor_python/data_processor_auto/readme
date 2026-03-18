@@ -1,0 +1,1 @@
+python data_process.py --batch -if D:\Desktop\sensor_data -o D:\Desktop\sensor_python\data_output

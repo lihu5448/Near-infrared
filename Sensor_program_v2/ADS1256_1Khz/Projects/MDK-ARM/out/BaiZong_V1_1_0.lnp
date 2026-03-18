@@ -1,0 +1,23 @@
+--cpu Cortex-M0
+".\out\system_stm32f0xx.o"
+".\out\startup_stm32f030x8.o"
+".\out\usart1.o"
+".\out\my_fifo.o"
+".\out\tim.o"
+".\out\my_flash.o"
+".\out\ads1255.o"
+".\out\stm32f0xx_dma.o"
+".\out\stm32f0xx_exti.o"
+".\out\stm32f0xx_flash.o"
+".\out\stm32f0xx_gpio.o"
+".\out\stm32f0xx_rcc.o"
+".\out\stm32f0xx_syscfg.o"
+".\out\stm32f0xx_tim.o"
+".\out\stm32f0xx_usart.o"
+".\out\stm32f0xx_misc.o"
+".\out\main.o"
+".\out\stm32f0xx_it.o"
+--library_type=microlib --strict --scatter ".\out\BaiZong_V1_1_0.sct"
+--summary_stderr --info summarysizes --map --load_addr_map_info --xref --callgraph --symbols
+--info sizes --info totals --info unused --info veneers
+--list "..\..\BaiZong_V1_1_0.map" -o .\out\BaiZong_V1_1_0.axf

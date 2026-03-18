@@ -1,0 +1,5 @@
+{
+    "input_folder": "D:\\Desktop\\sensor_data",
+    "output_folder": "D:\\Desktop\\sensor_python\\data_output",
+    "default_weight": 1
+}
