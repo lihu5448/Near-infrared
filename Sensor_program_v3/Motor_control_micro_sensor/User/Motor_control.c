@@ -13,14 +13,14 @@
 extern QueueHandle_t xQueue1;
 extern QueueHandle_t xQueue2;
 extern EventGroupHandle_t Motor_rotate_event;
-
+extern  TimerHandle_t xTimers;
 
 extern  u8  timer_count;
 extern  MS_Motor_Params_t  MS4005;
 
 
 uint32_t Motor_Id = 0x141;
-u16 MaxSpeed = 100;
+u16 MaxSpeed = 600;
 uint8_t key_press = 0;
 
 
@@ -61,58 +61,60 @@ void  motor_gpio_init()
 
 void EXTI9_5_IRQHandler(void) 
 { 
-	BaseType_t xResult;
-	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-	
-  if(EXTI_GetITStatus(EXTI_Line5)!=RESET)     
-  { 
-		//delay_ms(60);
-		if ((GPIOC->IDR & GPIO_Pin_5) == 0x00000020)
-		{
-	  if(key_press == 1)  // 测量旋转
-		{
-		/* 向任务vTaskMsgPro发送事件标志 */
-		xResult = xEventGroupSetBitsFromISR(Motor_rotate_event, /* 事件标志组句柄 */
-									    BIT_0 ,             /* 设置bit0 */
-									    &xHigherPriorityTaskWoken );
+//	BaseType_t xResult;
+//	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+//	
+//  if(EXTI_GetITStatus(EXTI_Line5)!=RESET)     
+//  { 
+//	  if(key_press == 1)  // 测量旋转
+//		{
+//		/* 向任务vTaskMsgPro发送事件标志 */
+//		xResult = xEventGroupSetBitsFromISR(Motor_rotate_event, /* 事件标志组句柄 */
+//									    BIT_0 ,             /* 设置bit0 */
+//									    &xHigherPriorityTaskWoken );
 
-		}
-		else if(key_press == 2)	 //参考旋转
-		{
-			/* 向任务vTaskMsgPro发送事件标志 */
-			xResult = xEventGroupSetBitsFromISR(Motor_rotate_event, /* 事件标志组句柄 */
-									    BIT_1 ,             /* 设置bit1 */
-									    &xHigherPriorityTaskWoken );   
-		}
-		
-	   /* 消息被成功发出 */
-   	 if( xResult != pdFAIL )
-				{
-				  portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-				}
-		}
+//		}
+//		else if(key_press == 2)	 //参考旋转
+//		{
+//			/* 向任务vTaskMsgPro发送事件标志 */
+//			xResult = xEventGroupSetBitsFromISR(Motor_rotate_event, /* 事件标志组句柄 */
+//									    BIT_1 ,             /* 设置bit1 */
+//									    &xHigherPriorityTaskWoken );   
+//		}
+//		
+//	   /* 消息被成功发出 */
+//   	 if( xResult != pdFAIL )
+//				{
+//				  portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+//				}
+//		
     EXTI_ClearITPendingBit(EXTI_Line5);   		
-  }    
+//  }    
 } 
 
-uint16_t  target_angle = 4100;
+
 
 void Motor_Init(void)
 {
-	 //int32_t target_angle ;
+	 uint16_t  target_encoder =  0;
+	 int32_t target_angle ;
 	 
 	 delay_ms(2000);  //让电机初始化完成
 	
 	 Motor_operation(Motor_Id); 
 	
-	 delay_ms(500);
+	 delay_ms(100);
+	 
+//	 target_angle = (int32_t)(target_encoder)*100 * 360 / 32768;
+//	 Multiloop_position_closedloop_control1(Motor_Id , target_angle);
 	
-//	target_angle = (int32_t)target_encoder * 36000 / 32767;
+   Multiloop_position_closedloop_control1(Motor_Id , 0);	
 	
-	  Multiloop_position_closedloop_control1(Motor_Id , target_angle);
-	
+	 MS4005.angle_last = 0;
+	 MS4005.angle_error = 0;
+	 MS4005.motor_rotate_count = 0; //初始旋转计数
 	 motor_gpio_init();
-	
+	 
 	 delay_ms(500);
 }
 
@@ -131,6 +133,9 @@ uint8_t loop_finish = 0;
 
 uint8_t ask_count = 0;
 
+//  PD8    LED标志位
+//  PD10   脉冲值，旋转完成之后会输出一个  高电平脉冲  
+
 void Motor_control(void)
 {	
 	EventBits_t uxBits;	
@@ -145,23 +150,19 @@ void Motor_control(void)
 				/* 有键按下 */
 			 switch (ucKeyCode)
 				{
-	 			 case KEY_DOWN_K0:			  /* K0键    测量灯正转一圈 */
+	 			 case KEY_DOWN_K0:			  /* K0键    测量灯亮  开始测量 */
 				 if (key_press == 0) {
 					key_press = 1;
-					GPIO_SetBits(GPIOD,GPIO_Pin_8);
-				  GPIO_ResetBits(GPIOD,GPIO_Pin_10);
-				  vTaskDelay(pdMS_TO_TICKS(500)); 
-					Incremental_position_closed_loop2( Motor_Id,MaxSpeed,36000);
+					GPIO_SetBits(GPIOD,GPIO_Pin_8);  // 测量灯亮	 
+				  vTaskDelay(pdMS_TO_TICKS(500));  //等待led电流源稳定
 				 }
 					break; 
 
 				case KEY_DOWN_K1:			  /* K1键    参考灯正转一圈*/
 					if (key_press == 0) {
 					key_press = 2;
-				  GPIO_ResetBits(GPIOD,GPIO_Pin_8);
-					GPIO_SetBits(GPIOD,GPIO_Pin_10);
+				  GPIO_ResetBits(GPIOD,GPIO_Pin_8);    // 参考灯亮
 					vTaskDelay(pdMS_TO_TICKS(500)); //给电流源稳定的时间
-					Incremental_position_closed_loop2( Motor_Id, MaxSpeed,36000);
 					}
 					break;
 
@@ -178,33 +179,36 @@ void Motor_control(void)
 
 	  if (key_test > 0)
 			{
-			/* 有键按下 */
-			switch (key_test)
-				{
-					
-			 	case 1:			  /* K0键    测量灯正转一圈*/
+//			/* 有键按下 */
+			 switch (key_test)
+			  {
+	 			 case 1:			  /* K0键    测量灯亮  开始测量 */
 				 if (key_press == 0) {
 					key_press = 1;
-					GPIO_SetBits(GPIOD,GPIO_Pin_8);
-				  GPIO_ResetBits(GPIOD,GPIO_Pin_10);
-				  vTaskDelay(pdMS_TO_TICKS(500)); 
-					//Incremental_position_closed_loop2( Motor_Id,MaxSpeed,36000);
-                     Incremental_position_closed_loop1( Motor_Id,36000);
+					GPIO_SetBits(GPIOD,GPIO_Pin_8);  // 测量灯亮	 
+	        Multiloop_position_closedloop_control1(Motor_Id ,0);	//位置归零		
+          MS4005.motor_rotate_count = 0;					 
+				  vTaskDelay(pdMS_TO_TICKS(500));  //等待led电流源稳定
+					Incremental_position_closed_loop2( Motor_Id,MaxSpeed,100);	 //顺时针旋转1度
+				  xTimerStart(xTimers, 0) ;
+							
 				 }
+					break; 
 
 				case 2:			  /* K1键    参考灯正转一圈*/
 					if (key_press == 0) {
 					key_press = 2;
-				  GPIO_ResetBits(GPIOD,GPIO_Pin_8);
-					GPIO_SetBits(GPIOD,GPIO_Pin_10);
+				  GPIO_ResetBits(GPIOD,GPIO_Pin_8);    // 参考灯亮
+	        Multiloop_position_closedloop_control1(Motor_Id ,0);
+					MS4005.motor_rotate_count = 0;
 					vTaskDelay(pdMS_TO_TICKS(500)); //给电流源稳定的时间
-					//Incremental_position_closed_loop2( Motor_Id, MaxSpeed,36000);
-                    Incremental_position_closed_loop1( Motor_Id,36000);
+					Incremental_position_closed_loop2( Motor_Id,MaxSpeed,100);	 //顺时针旋转1度		
+				  xTimerStart(xTimers, 0);						
+
 					}
 					break;
 
-				case 3:			/* 电机停止 */
-					//Read_the_motor_status1(Motor_Id);
+				case 3:		
 					 Read_encoder_data(Motor_Id);
 					break;
 				
@@ -214,7 +218,11 @@ void Motor_control(void)
 				}
 			  key_test = 0;
 			}
-
+			
+			
+//按键处理代码   
+		if(key_press != 0)
+		{
 		/* 上升沿中断     */
 		uxBits = xEventGroupWaitBits(Motor_rotate_event,
 							         BIT_0 | BIT_1,        // 等待两个事件位    
@@ -222,20 +230,35 @@ void Motor_control(void)
 							         pdFALSE,              // 不等待所有位
 							         0); 	                 // 不等待										
 			
-		if((uxBits & BIT_0)== BIT_0 )  //代表有一个上升沿  测量光时
+		if((uxBits & BIT_0)== BIT_0 )  // 1度旋转完成
 			{
+				//脉冲  
+	   	  GPIO_SetBits(GPIOD,GPIO_Pin_10);
+				vTaskDelay(1);  //1us脉冲
+		    GPIO_ResetBits(GPIOD,GPIO_Pin_10);
+				
+        MS4005.motor_rotate_count++;
+				printf("motor_rotate_count: %d   angle_now:  %.2f   motor_encoder: %d \r\n",MS4005.motor_rotate_count, MS4005.angle_now, MS4005.encoder);
+        if(MS4005.motor_rotate_count < 360)
+				 {
+					Incremental_position_closed_loop2( Motor_Id,MaxSpeed,100);	 //顺时针旋转1度		
+				 }	
+        else	
+				{
+				 MS4005.motor_rotate_count = 0;
+				 
+					xTimerStop(xTimers, 0) ;
 					key_press = 0;
-				  GPIO_ResetBits(GPIOD,GPIO_Pin_8);
-					GPIO_ResetBits(GPIOD,GPIO_Pin_10);		   						 
+				}					
 			
 			}	
-		else if((uxBits & BIT_1)== BIT_1 )  //代表有一个上升沿  参考光时
-			{
-		    key_press = 0;
-				GPIO_ResetBits(GPIOD,GPIO_Pin_8);
-				GPIO_ResetBits(GPIOD,GPIO_Pin_10);		
-			}
-		vTaskDelay(5);
+//		else if((uxBits & BIT_1)== BIT_1 )  //
+//			{
+//		    key_press = 0;	
+//				
+//			}
+		}			
+		 vTaskDelay(5);
 	}
 }
 

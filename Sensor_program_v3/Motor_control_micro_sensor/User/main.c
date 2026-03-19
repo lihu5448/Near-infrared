@@ -13,7 +13,7 @@ static void vTaskStart(void *pvParameters);
 static void AppTaskCreate (void);
 static void AppTaskCreate (void);
 static void AppObjCreate (void);
-//static void vTimerCallback(xTimerHandle pxTimer);
+static void vTimerCallback(xTimerHandle pxTimer);
 
 /*
 **********************************************************************************************************
@@ -40,7 +40,7 @@ EventGroupHandle_t Motor_rotate_event;
 CanTxMsg g_tCanTxMsg;	/* 用于发送 */
 CanRxMsg g_tCanRxMsg;	/* 用于接收 */
 char led_flag = 0;
-
+extern uint8_t key_press ;
 
 u8  timer_count = 0;
 
@@ -102,11 +102,11 @@ int main(void)
 */
 static void vTaskTaskUserIF(void *pvParameters)
 {
-    while(1)
-    {
+//    while(1)
+//    {
 		  Motor_control();
-			vTaskDelay(10); 
-	  }
+//			vTaskDelay(10); 
+//	  }
 }
 
 /*
@@ -208,28 +208,12 @@ static void vTaskStart(void *pvParameters)
 static void AppTaskCreate (void)
 {
 	
-	xTaskCreate( vTaskLED,    		/* 任务函数  */
-                 "vTaskLED",  		/* 任务名    */
+	xTaskCreate( vTaskLED,    		/* 任务函数 */
+                 "vTaskLED",  		/* 任务名 */
                  512,         		/* stack大小，单位word，也就是4字节 */
                  NULL,        		/* 任务参数  */
                  1,           		/* 任务优先级*/
                  &xHandleTaskLED ); /* 任务句柄  */ 
-
-	xTaskCreate( vTaskTaskUserIF,   	/* 任务函数  */
-                 "vTaskUserIF",     	/* 任务名    */
-                 512,               	/* 任务栈大小，单位word，也就是4字节 */
-                 NULL,              	/* 任务参数  */
-                 3,                 	/* 任务优先级*/
-                 &xHandleTaskUserIF );  /* 任务句柄  */
-
-	
-	xTaskCreate( vTaskMsgPro,     		/* 任务函数  */
-                 "vTaskMsgPro",   		/* 任务名    */
-                 512,             		/* 任务栈大小，单位word，也就是4字节 */
-                 NULL,           		/* 任务参数  */
-                 4,               		/* 任务优先级*/
-                 &xHandleTaskMsgPro );  /* 任务句柄  */
-	
 	
 	xTaskCreate(   vTaskStart,     		/* 任务函数  */
                  "vTaskStart",   		/* 任务名    */    //按键扫描
@@ -237,6 +221,24 @@ static void AppTaskCreate (void)
                  NULL,           		/* 任务参数  */
                  2,              		/* 任务优先级*/
                  &xHandleTaskStart );   /* 任务句柄  */
+	
+	xTaskCreate( vTaskTaskUserIF,   	/* 任务函数  */
+                 "vTaskUserIF",     	/* 任务名    */
+                 512,               	/* 任务栈大小，单位word，也就是4字节 */
+                 NULL,              	/* 任务参数  */
+                 4,                 	/* 任务优先级*/
+                 &xHandleTaskUserIF );  /* 任务句柄  */
+
+	
+	xTaskCreate( vTaskMsgPro,     		  /* 任务函数  */
+                 "vTaskMsgPro",   		/* 任务名    */
+                 512,             		/* 任务栈大小，单位word，也就是4字节 */
+                 NULL,           		  /* 任务参数  */
+                 3,               		/* 任务优先级*/
+                 &xHandleTaskMsgPro );  /* 任务句柄  */
+	
+	
+
 }
 
 /*
@@ -250,25 +252,31 @@ static void AppTaskCreate (void)
 static void AppObjCreate (void)
 {
 	
-//	const TickType_t  xTimerPer = 100;
-//	
-//	xTimers = xTimerCreate("Timer",          /* 定时器名字 */
-//							xTimerPer,       /* 定时器周期,单位时钟节拍 */
-//							pdTRUE,          /* 周期性 */
-//							(void *) 0,      /* 定时器ID */
-//							vTimerCallback); /* 定时器回调函数 */
+	const TickType_t  xTimerPer = 5;
+	
+	xTimers = xTimerCreate("Timer",          /* 定时器名字 */
+							xTimerPer,       /* 定时器周期,单位时钟节拍 */
+							pdTRUE,          /* 周期性 */
+							(void *) 0,      /* 定时器ID */
+							vTimerCallback); /* 定时器回调函数 */
 
-//	if(xTimers == NULL)
-//	{
-//		/* 没有创建成功，用户可以在这里加入创建失败的处理机制 */
-//	}
-	   
+	if(xTimers == NULL)
+	{
+		/* 没有创建成功，用户可以在这里加入创建失败的处理机制 */
+	}
+	
+	if(xTimerStop(xTimers, 0) == pdPASS)   //定时器  失能
+		{
+			
+		} 	
+
+		
 	/* 创建10个CanRxMsg型消息队列 */
 	xQueue1 = xQueueCreate(10, sizeof(CanRxMsg));
     if( xQueue1 == 0 )
     {
         /* 没有创建成功，用户可以在这里加入创建失败的处理机制 */
-    }
+     }
 	
     
     
@@ -292,10 +300,9 @@ static void AppObjCreate (void)
 		{ 
 			/* 没有创建成功，用户可以在这里加入创建失败的处理机制 */
 		  }	
-//	if (xTimerStart(xTimers, 0) == pdPASS) 
-//		{
-//				;
-//		} 
+		
+			
+
 }
 
 /*
@@ -306,10 +313,14 @@ static void AppObjCreate (void)
 *	返 回 值: 无
 *********************************************************************************************************
 */
-//static void vTimerCallback(xTimerHandle pxTimer)
-//{
-//	configASSERT(pxTimer);
-//}
+static void vTimerCallback(xTimerHandle pxTimer)
+{
+	if(key_press != 0)
+	{
+	Read_encoder_data(Motor_Id);  //定时询问编码器
+	//configASSERT(pxTimer);	
+	}
+}
 
 /***************************** 安富莱电子 www.armfly.com (END OF FILE) *********************************/
 

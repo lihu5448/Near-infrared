@@ -115,7 +115,7 @@ void motor_data_process(CanRxMsg g_tCanRxMsg)
 		   MS4005.encoderRaw = (uint16_t)g_tCanRxMsg.Data[4] | ((uint16_t)g_tCanRxMsg.Data[5] <<8 );
 		   MS4005.encoderOffset = (uint16_t)g_tCanRxMsg.Data[6] | ((uint16_t)g_tCanRxMsg.Data[7] <<8 );
 		 
-       encoder_init =  MS4005.encoder* 360 / 32767;
+       encoder_init =  MS4005.encoder* 360 / 32768;
 			break;
 		 
 			

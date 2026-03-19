@@ -10,14 +10,38 @@
 
 
 MS_Motor_Params_t  MS4005;
-uint16_t  encoder_init = 0 ;	
+extern EventGroupHandle_t Motor_rotate_event;
 
 extern SemaphoreHandle_t encoder_init_flag;  //  二值信号量  用于读取初始编码器值 的标志位
 extern SemaphoreHandle_t encoder_read_finish ;
 extern TimerHandle_t xTimers;
+extern uint8_t key_press ;
 
+
+/* ====== 编码器步进检测====== */
+/* 你的编码器一圈 32768 count */
+#define ENC_CPR                 32768u
+
+/* 1°对应的encoder tick，约 32768/360 = 91.02
+   这里用四舍五入的整数 91（足够稳定）
+   如果你希望更精确，可用固定点算法（我也可以给）。 */
+#define ENC_TICKS_PER_DEG       ((ENC_CPR + 180u) / 360u)   /* ≈ 91 */
+
+/* 认为完成一步(1°)需要累计达到的tick数 */
+#define STEP_TICKS_THRESHOLD    (ENC_TICKS_PER_DEG)
+
+/* 抖动/噪声过滤：小于等于此变化量的抖动忽略（按你实际噪声可调 1~5） */
+#define ENC_NOISE_IGNORE_TICKS  2u
+
+/* 防御：一次跳变太大（例如异常值/错帧）时的上限（可选）
+   正常 5ms 问询不可能跳很大；若出现很大delta，宁愿丢掉这次以免误触发 */
+#define ENC_DELTA_SANITY_MAX    5000u
 void motor_data_process(CanRxMsg g_tCanRxMsg)
 {	
+	
+  BaseType_t xResult;
+	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+	
 	switch(g_tCanRxMsg.Data[0])
 	  {
 	   case  0x9A:    // 读取当前电机的温度、电压和错误状态标志       读取电机状态1
@@ -111,11 +135,29 @@ void motor_data_process(CanRxMsg g_tCanRxMsg)
 		 
 			 
 		 case  0x90:    //  读取编码器的当前位置
+
 			 MS4005.encoder = (uint16_t)g_tCanRxMsg.Data[2] | ((uint16_t)g_tCanRxMsg.Data[3] <<8 );
 		   MS4005.encoderRaw = (uint16_t)g_tCanRxMsg.Data[4] | ((uint16_t)g_tCanRxMsg.Data[5] <<8 );
 		   MS4005.encoderOffset = (uint16_t)g_tCanRxMsg.Data[6] | ((uint16_t)g_tCanRxMsg.Data[7] <<8 );
 		 
-       encoder_init =  MS4005.encoder* 360 / 32767;
+       MS4005.angle_now =  (float)(MS4005.encoder)* 360.0f / 32768.0f;
+		 
+			 if(key_press!= 0)
+			  {			
+         MS4005.angle_error = MS4005.angle_now - MS4005.angle_last;					
+         if(MS4005.angle_error >=0.9f || (0 - MS4005.angle_error) > 200.0f ) 
+			   {
+
+				  xResult = xEventGroupSetBits(Motor_rotate_event, /* 事件标志组句柄 */
+									                           BIT_0              /* 设置bit0 */
+							                        );	
+	 			  MS4005.angle_last =  MS4005.angle_now; //旋转完成，更新上次角度值					 
+			   }
+				 else
+				 {
+				   xTimerStop(xTimers, 0);  //定时器失能
+				 }
+			  }				 	   
 			break;
 		 
 			

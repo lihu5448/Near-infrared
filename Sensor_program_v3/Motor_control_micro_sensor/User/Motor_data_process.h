@@ -19,7 +19,10 @@ typedef struct {
     int16_t  power;            // 输出功率，范围-1000~1000
     int16_t  speed;            // 电机转速，单位1dps/LSB
     uint16_t encoder;          // 编码器位置值
-
+	
+    uint16_t encoder_last;
+	
+	
     // 编码器相关参数
     uint16_t encoderRaw;       // 编码器原始位置
     uint16_t encoderOffset;    // 编码器零偏
@@ -41,6 +44,14 @@ typedef struct {
 
     // 抱闸器状态
     uint8_t  BrakeState;       // 伺服器状态：0x00刹车启动，0x01刹车释放
+		
+		//编码器状态
+		float angle_now;
+		float angle_last;
+		float angle_error;
+		uint16_t motor_rotate_count;
+		
+		
 } MS_Motor_Params_t;
 
 
