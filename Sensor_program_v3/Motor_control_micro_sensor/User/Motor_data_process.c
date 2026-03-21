@@ -16,7 +16,7 @@ extern SemaphoreHandle_t encoder_init_flag;  //  ¶þÖµÐÅºÅÁ¿  ÓÃÓÚ¶ÁÈ¡³õÊ¼±àÂëÆ÷Ö
 extern SemaphoreHandle_t encoder_read_finish ;
 extern TimerHandle_t xTimers;
 extern uint8_t key_press ;
-
+extern uint8_t flag;
 
 /* ====== ±àÂëÆ÷²½½ø¼ì²â====== */
 /* ÄãµÄ±àÂëÆ÷Ò»È¦ 32768 count */
@@ -37,7 +37,8 @@ extern uint8_t key_press ;
 
 int32_t delta;
 uint32_t adelta;
-
+int32_t d;
+uint32_t ad;
 void motor_data_process(CanRxMsg g_tCanRxMsg)
 {	
 	
@@ -145,18 +146,45 @@ void motor_data_process(CanRxMsg g_tCanRxMsg)
        MS4005.angle_now =  (float)(MS4005.encoder)* 360.0f / 32768.0f;
 		 
        /* ½öÔÚÉ¨Ãè×´Ì¬×ö 1¡ãÍê³ÉÅÐ¶¨ */
-       if (key_press != 0)
-          {
-						 MS4005.angle_error = MS4005.angle_now - MS4005.motor_rotate_count;
-						 if (MS4005.angle_error > 180.0f)  MS4005.angle_error -= 360.0f;
-             if (MS4005.angle_error < -180.0f) MS4005.angle_error += 360.0f;
-						
-						 if( MS4005.angle_error < 0.1)
-						 {
-                xEventGroupSetBits(Motor_rotate_event, BIT_0);
-                MS4005.angle_last = MS4005.angle_now;			 
-						 }
-          }		 	   
+/* ½öÔÚÉ¨Ãè×´Ì¬×ö 1¡ãÍê³ÉÅÐ¶¨£ºÓÃ encoder tick ÀÛ¼Æ£¨Ö»ÈÏÕý×ª£ºencoderÔö´ó£© */
+if (key_press != 0)
+{
+    if (!MS4005.step_prev_valid)
+    {
+        MS4005.step_prev_enc = MS4005.encoder;
+        MS4005.step_accum_ticks = 0;
+        MS4005.step_prev_valid = 1;
+    }
+    else
+    {
+        int32_t d = (int32_t)MS4005.encoder - (int32_t)MS4005.step_prev_enc;
+
+        /* ´¦Àí0..32767»·ÈÆ£ºÕý×ª¿ç0Ê± d »á±ä³É¸ººÜ´ó£¬ÐèÒª¼ÓÒ»È¦ */
+        if (d < -(int32_t)(ENC_CPR / 2)) d += (int32_t)ENC_CPR;
+
+        /* Ö»Í³¼ÆÕýÏò£¨encoderÔö´ó£©£¬³öÏÖ·´Ïò¾Í¶ªÆúÕâ´Î */
+        if (d > 0 && (uint32_t)d < ENC_DELTA_SANITY_MAX)
+        {
+            if ((uint32_t)d > ENC_NOISE_IGNORE_TICKS)
+            {
+                MS4005.step_accum_ticks += (uint16_t)d;
+
+                if (MS4005.step_accum_ticks >= ENC_TICKS_PER_DEG)
+                {
+                    MS4005.step_accum_ticks -= ENC_TICKS_PER_DEG;
+                    xEventGroupSetBits(Motor_rotate_event, BIT_0);
+                }
+            }
+        }
+
+        MS4005.step_prev_enc = MS4005.encoder;
+    }
+}
+else
+{
+    MS4005.step_prev_valid = 0;
+    MS4005.step_accum_ticks = 0;
+}		 	   
 			break;
 		 
 			
