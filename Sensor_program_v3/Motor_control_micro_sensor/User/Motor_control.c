@@ -19,14 +19,12 @@ extern  u8  timer_count;
 extern  MS_Motor_Params_t  MS4005;
 
 
+
+TaskHandle_t g_motor_control_task = NULL;
+
 uint32_t Motor_Id = 0x141;
-u16 MaxSpeed = 1000;
+u16 MaxSpeed = 400;
 uint8_t key_press = 0;
-
-static uint8_t pos_mode_inited = 0;
-static int32_t pos_target_001deg = 0;
-
-
 
 //PC5 上升沿触发
 void  motor_gpio_init()
@@ -122,6 +120,26 @@ void Motor_Init(void)
 	 delay_ms(500);
 }
 
+
+static float wrap_err_deg(float err)
+{
+    if (err > 180.0f) err -= 360.0f;
+    if (err < -180.0f) err += 360.0f;
+    return err;
+}
+
+static void adc_trigger_pulse_pd10(void)
+{
+    GPIO_SetBits(GPIOD, GPIO_Pin_10);
+
+    // 注意：这是 1 个 tick，不是 1us
+    // 若 ADC 板要求 us 级脉宽，需要换 delay_us 或定时器脉冲
+    vTaskDelay(1);
+
+    GPIO_ResetBits(GPIOD, GPIO_Pin_10);
+}
+
+
 /*
 *********************************************************************************************************
 *	函 数 名: Motor_control
@@ -138,13 +156,25 @@ uint8_t loop_finish = 0;
 uint8_t ask_count = 0;
 int32_t now_001deg;
 
+
+//允许误差
+const float WINDOW_DEG = 0.2f;
+
+//编码器稳定次数
+const uint8_t STABLE_N = 1;
+uint8_t stable = 0;
+
+float err;
+uint32_t got;
+
 //  PD8    LED标志位
 //  PD10   脉冲值，旋转完成之后会输出一个  高电平脉冲  
-
 void Motor_control(void)
 {	
-	EventBits_t uxBits;	
+//	EventBits_t uxBits;	
 	uint8_t ucKeyCode;	   	/* 按键代码 */
+	uint16_t target_deg;
+	g_motor_control_task = xTaskGetCurrentTaskHandle();
 	
 	while(1)
 	{	
@@ -187,17 +217,73 @@ void Motor_control(void)
 //			/* 有键按下 */
 			 switch (key_test)
 			  {
-	 			 case 1:			  /* K0键    测量灯亮  开始测量 */
-				 if (key_press == 0) {
-					key_press = 1;
-					GPIO_SetBits(GPIOD,GPIO_Pin_8);  // 测量灯亮	 
-	        Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);	//位置归零		
-          MS4005.motor_rotate_count = 0;					 
-				  vTaskDelay(pdMS_TO_TICKS(500));  //等待led电流源稳定
-				  xTimerStart(xTimers, 0) ;
-							
-				 }
-					break; 
+case 1:              /* K0键    测量灯亮  开始测量 */
+    if (key_press == 0)
+    {
+        key_press = 1;
+        GPIO_SetBits(GPIOD, GPIO_Pin_8);  // 测量灯亮
+
+        Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0); // 位置归零
+        MS4005.motor_rotate_count = 0;
+
+        vTaskDelay(pdMS_TO_TICKS(500));   // ???待led电流源稳定
+        xTimerStart(xTimers, 0);
+
+        /* 清空可能残留的通知计数，避免一开始 stable 被“旧通知”冲高 */
+        ulTaskNotifyTake(pdTRUE, 0xFFFFFFFF);
+
+        for ( target_deg = 0; target_deg <= 360; target_deg++)
+        {
+            /* ===================== 发运动命令：前5°增量，后面位置 ===================== */
+            if (target_deg == 0)
+            {
+                /* 明确回零点 */
+                Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
+            }
+            else if (target_deg <= 5)
+            {
+                /* 前5°：增量 +1° */
+                Incremental_position_closed_loop2(Motor_Id, MaxSpeed, 100);
+            }
+            else
+            {
+                /* 5°后：位置模式到目标角度 */
+                Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, (int32_t)target_deg * 100);
+            }
+
+            /* ===================== 等到位稳定：window=±0.2°, 连续2次 ===================== */
+            stable = 0;
+
+            while (stable < STABLE_N)
+            {
+                got = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(300));
+                if (got == 0)
+                {
+                    /* 超时继续等（可按需加超时退出/报警） */
+                    continue;
+                }
+
+                err = wrap_err_deg(MS4005.angle_now - (float)target_deg);
+
+                if (err >= -WINDOW_DEG && err <= WINDOW_DEG)
+                    stable++;
+                else
+                    stable = 0;
+            }
+
+            /* ===================== 到位稳定后触发一次 ADC 采样 ===================== */
+            adc_trigger_pulse_pd10();
+
+            printf("target_deg=%d angle_now=%.2f encoder=%d\r\n",
+                   target_deg, MS4005.angle_now, MS4005.encoder);
+        }
+
+        /* 扫描完成 */
+        xTimerStop(xTimers, 0);
+        key_press = 0;
+        MS4005.motor_rotate_count = 0;
+    }
+    break;
 
 				case 2:			  /* K1键    参考灯正转一圈*/
 					if (key_press == 0) {
@@ -222,70 +308,70 @@ void Motor_control(void)
 			}
 			
 			
-//按键处理代码   
-		if(key_press != 0)
-		{
-		/* 上升沿中断     */
-		uxBits = xEventGroupWaitBits(Motor_rotate_event,
-							         BIT_0 | BIT_1,        // 等待两个事件位    
-							         pdTRUE,  						 // 清除事件位
-							         pdFALSE,              // 不等待所有位
-							         0); 	                 // 不等待										
-			
-		if((uxBits & BIT_0)== BIT_0 )  // 1度旋转完成
-			{
-				//脉冲  
-	   	  GPIO_SetBits(GPIOD,GPIO_Pin_10);
-				vTaskDelay(1);  //1us脉冲
-		    GPIO_ResetBits(GPIOD,GPIO_Pin_10);
-				
-				printf("motor_rotate_count: %d   angle_now:  %.2f   motor_encoder: %d \r\n",MS4005.motor_rotate_count, MS4005.angle_now, MS4005.encoder);
-        
-				MS4005.motor_rotate_count++;   
-				
-			  if(MS4005.motor_rotate_count <= 5)
-			    {
-				 	 Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, MS4005.motor_rotate_count*100);	
-					 pos_mode_inited = 0;  // 还没进入位置模
-			  	}
-        else if(MS4005.motor_rotate_count <= 360)
-				 {
-           /* 第一次进入位置模式：把目标对齐到当前整度附近，保证后续单调递增 */
-           if (!pos_mode_inited)
-            {
-              // 用当前角度估算当前位置(0.01°)
-              now_001deg = (int32_t)(MS4005.angle_now * 100.0f + 0.5f);
-
-              // 对齐到“当前所在整度”
-               pos_target_001deg = ((now_001deg + 50) / 100) * 100;
-
-               // 确保目标至少是当前计数对应的角度（例如第6°时至少600）
-                if (pos_target_001deg < (int32_t)MS4005.motor_rotate_count * 100)
-                pos_target_001deg = (int32_t)MS4005.motor_rotate_count * 100;
-
-               pos_mode_inited = 1;
-           }
-
-           /* 后面每次 +1° 的绝对目标（单调递增，不会在0/360边界选反向最短路） */
-           pos_target_001deg += 100;
-           Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, pos_target_001deg);         						 
-				  }	
-        else	
-				{
-				  MS4005.motor_rotate_count = 0;
-          pos_mode_inited = 0;
-          pos_target_001deg = 0;					
-					xTimerStop(xTimers, 0) ;
-					key_press = 0;
-				}					
-			
-			}	
-//		else if((uxBits & BIT_1)== BIT_1 )  //
+////按键处理代码   
+//		if(key_press != 0)
+//		{
+//		/* 上升沿中断     */
+//		uxBits = xEventGroupWaitBits(Motor_rotate_event,
+//							         BIT_0 | BIT_1,        // 等待两个事件位    
+//							         pdTRUE,  						 // 清除事件位
+//							         pdFALSE,              // 不等待所有位
+//							         0); 	                 // 不等待										
+//			
+//		if((uxBits & BIT_0)== BIT_0 )  // 1度旋转完成
 //			{
-//		    key_press = 0;	
+//				//脉冲  
+//	   	  GPIO_SetBits(GPIOD,GPIO_Pin_10);
+//				vTaskDelay(1);  //1ms脉冲
+//		    GPIO_ResetBits(GPIOD,GPIO_Pin_10);
 //				
-//			}
-		}			
+//				printf("motor_rotate_count: %d   angle_now:  %.2f   motor_encoder: %d \r\n",MS4005.motor_rotate_count, MS4005.angle_now, MS4005.encoder);
+//        
+//				MS4005.motor_rotate_count++;   
+//				
+//			  if(MS4005.motor_rotate_count <= 5)
+//			    {
+//				 	 Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, MS4005.motor_rotate_count*100);	
+//					 pos_mode_inited = 0;  // 还没进入位置模
+//			  	}
+//        else if(MS4005.motor_rotate_count <= 360)
+//				 {
+//           /* 第一次进入位置模式：把目标对齐到当前整度附近，保证后续单调递增 */
+//           if (!pos_mode_inited)
+//            {
+//              // 用当前角度估算当前位置(0.01°)
+//              now_001deg = (int32_t)(MS4005.angle_now * 100.0f + 0.5f);
+
+//              // 对齐到“当前所在整度”
+//               pos_target_001deg = ((now_001deg + 50) / 100) * 100;
+
+//               // 确保目标至少是当前计数对应的角度（例如第6°时至少600）
+//                if (pos_target_001deg < (int32_t)MS4005.motor_rotate_count * 100)
+//                pos_target_001deg = (int32_t)MS4005.motor_rotate_count * 100;
+
+//               pos_mode_inited = 1;
+//           }
+
+//           /* 后面每次 +1° 的绝对目标（单调递增，不会在0/360边界选反向最短路） */
+//           pos_target_001deg += 100;
+//           Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, pos_target_001deg);         						 
+//				  }	
+//        else	
+//				{
+//				  MS4005.motor_rotate_count = 0;
+//          pos_mode_inited = 0;
+//          pos_target_001deg = 0;					
+//					xTimerStop(xTimers, 0) ;
+//					key_press = 0;
+//				}					
+//			
+//			}	
+////		else if((uxBits & BIT_1)== BIT_1 )  //
+////			{
+////		    key_press = 0;	
+////				
+////			}
+//		}			
 		 vTaskDelay(10);
 	}
 }

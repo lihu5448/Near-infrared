@@ -1,0 +1,33 @@
+.\out\ads1255.o: ..\..\BSP\ADS1255.c
+.\out\ads1255.o: ..\..\BSP\ADS1255.h
+.\out\ads1255.o: ..\..\Libraries\CMSIS\Device\ST\STM32F0xx\Include\stm32f0xx.h
+.\out\ads1255.o: ..\..\Libraries\CMSIS\Include\core_cm0.h
+.\out\ads1255.o: D:\Program Files\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\..\include\stdint.h
+.\out\ads1255.o: ..\..\Libraries\CMSIS\Include\core_cmInstr.h
+.\out\ads1255.o: ..\..\Libraries\CMSIS\Include\core_cmFunc.h
+.\out\ads1255.o: ..\..\Libraries\CMSIS\Device\ST\STM32F0xx\Include\system_stm32f0xx.h
+.\out\ads1255.o: ..\..\Projects\stm32f0xx_conf.h
+.\out\ads1255.o: ..\..\Libraries\STM32F0xx_StdPeriph_Driver\inc\stm32f0xx_cec.h
+.\out\ads1255.o: ..\..\Libraries\CMSIS\Device\ST\STM32F0xx\Include\stm32f0xx.h
+.\out\ads1255.o: ..\..\Libraries\STM32F0xx_StdPeriph_Driver\inc\stm32f0xx_crc.h
+.\out\ads1255.o: ..\..\Libraries\STM32F0xx_StdPeriph_Driver\inc\stm32f0xx_comp.h
+.\out\ads1255.o: ..\..\Libraries\STM32F0xx_StdPeriph_Driver\inc\stm32f0xx_dac.h
+.\out\ads1255.o: ..\..\Libraries\STM32F0xx_StdPeriph_Driver\inc\stm32f0xx_dbgmcu.h
+.\out\ads1255.o: ..\..\Libraries\STM32F0xx_StdPeriph_Driver\inc\stm32f0xx_dma.h
+.\out\ads1255.o: ..\..\Libraries\STM32F0xx_StdPeriph_Driver\inc\stm32f0xx_exti.h
+.\out\ads1255.o: ..\..\Libraries\STM32F0xx_StdPeriph_Driver\inc\stm32f0xx_flash.h
+.\out\ads1255.o: ..\..\Libraries\STM32F0xx_StdPeriph_Driver\inc\stm32f0xx_gpio.h
+.\out\ads1255.o: ..\..\Libraries\STM32F0xx_StdPeriph_Driver\inc\stm32f0xx_syscfg.h
+.\out\ads1255.o: ..\..\Libraries\STM32F0xx_StdPeriph_Driver\inc\stm32f0xx_i2c.h
+.\out\ads1255.o: ..\..\Libraries\STM32F0xx_StdPeriph_Driver\inc\stm32f0xx_iwdg.h
+.\out\ads1255.o: ..\..\Libraries\STM32F0xx_StdPeriph_Driver\inc\stm32f0xx_pwr.h
+.\out\ads1255.o: ..\..\Libraries\STM32F0xx_StdPeriph_Driver\inc\stm32f0xx_rcc.h
+.\out\ads1255.o: ..\..\Libraries\STM32F0xx_StdPeriph_Driver\inc\stm32f0xx_rtc.h
+.\out\ads1255.o: ..\..\Libraries\STM32F0xx_StdPeriph_Driver\inc\stm32f0xx_spi.h
+.\out\ads1255.o: ..\..\Libraries\STM32F0xx_StdPeriph_Driver\inc\stm32f0xx_tim.h
+.\out\ads1255.o: ..\..\Libraries\STM32F0xx_StdPeriph_Driver\inc\stm32f0xx_usart.h
+.\out\ads1255.o: ..\..\Libraries\STM32F0xx_StdPeriph_Driver\inc\stm32f0xx_wwdg.h
+.\out\ads1255.o: ..\..\Libraries\STM32F0xx_StdPeriph_Driver\inc\stm32f0xx_misc.h
+.\out\ads1255.o: ..\..\BSP\USART1.h
+.\out\ads1255.o: D:\Program Files\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\..\include\stdio.h
+.\out\ads1255.o: ..\..\BSP\TIM.h

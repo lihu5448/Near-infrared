@@ -252,7 +252,7 @@ static void AppTaskCreate (void)
 static void AppObjCreate (void)
 {
 	
-	const TickType_t  xTimerPer = 5;
+	const TickType_t  xTimerPer = 1;
 	
 	xTimers = xTimerCreate("Timer",          /* 定时器名字 */
 							xTimerPer,       /* 定时器周期,单位时钟节拍 */
