@@ -22,6 +22,9 @@ typedef struct {
 	
     uint16_t encoder_last;
 	
+    // === 绝对位置追踪 (核心) ===
+    int64_t  current_total_ticks; // 从上电开始累计的总Tick数 (软件维护的多圈位置)
+	
 	
     // 编码器相关参数
     uint16_t encoderRaw;       // 编码器原始位置
@@ -49,8 +52,13 @@ typedef struct {
 		float angle_now;
 		float angle_last;
 		float angle_error;
-		uint16_t motor_rotate_count;
 		
+		uint16_t motor_rotate_count;  //电机角度设置
+
+    /* 用 encoder tick 判定“1°完成”的状态 */
+    uint16_t step_prev_enc;       // 上一次用于计算增量的 encoder
+    uint16_t step_accum_ticks;    // 已累计的 tick（累积到约91视作1°） =》已累计的 tick（累积到约91视作1°）
+    uint8_t  step_prev_valid;     // step_prev_enc 是否有效（0/1）
 		
 } MS_Motor_Params_t;
 

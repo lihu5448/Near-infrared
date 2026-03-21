@@ -1,60 +1,96 @@
 import struct
 import numpy as np
 import os
-import json
-import argparse
-import sys
-from datetime import datetime
 import re
 import glob
+import pywt
+import matplotlib.pyplot as plt
+from collections import defaultdict
+
+
+# =========================================================
+# 全局配置区：直接修改这里即可
+# =========================================================
+
+# 输入/输出目录
+INPUT_FOLDER = r"D:\Desktop\sensor_data"
+OUTPUT_FOLDER = r"D:\Desktop\sensor_python\data_output"
+
+# 是否保存处理链各阶段序列到 CSV
+SAVE_PROCESSING_SERIES = False
+
+# -------------------------
+# 处理流程标志位
+# -------------------------
+ENABLE_OUTLIER_SUPPRESSION = False   # 是否启用异常值抑制
+ENABLE_KALMAN_FILTER = False         # 是否启用卡尔曼滤波
+ENABLE_WAVELET_DENOISE = False       # 是否启用小波去噪
+
+# -------------------------
+# 绘图标志位
+# -------------------------
+ENABLE_PLOT_DISTRIBUTION = False     # 是否绘制湿度-平均电压分布图
+PLOT_USE_FINAL_SIGNAL = False        # True: 用最终处理后数据求均值; False: 用原始数据求均值
+PLOT_JITTER = False                  # 是否给同一湿度下的点增加轻微横向抖动
+PLOT_JITTER_SCALE = 0.005           # 抖动强度
+
+# -------------------------
+# 卡尔曼滤波参数
+# -------------------------
+PROCESS_VARIANCE = 1e-7       # Q: 过程噪声方差，越小越平滑
+MEASUREMENT_VARIANCE = 1e-5   # R: 测量噪声方差，越大越平滑
+
+# -------------------------
+# 异常值抑制参数
+# -------------------------
+OUTLIER_WINDOW = 5            # 滑动窗口大小，建议奇数
+OUTLIER_SIGMA = 3.0           # 超过局部均值 ± sigma*std 判为异常点
+
+# -------------------------
+# 小波去噪参数
+# -------------------------
+WAVELET_NAME = 'db4'          # 可选: db4 / sym4 / coif3
+WAVELET_LEVEL = 3             # 小波分解层数
+THRESHOLD_SCALE = 2.0         # 阈值缩放系数，越大去噪越强
+
+# -------------------------
+# 文件过滤参数
+# -------------------------
+SKIP_FILES = {"amaoComDataLogT.txt"}   # 跳过的文件名集合
 
 
 class KalmanFilter1D:
     """
     一维卡尔曼滤波器
-    用于对电压序列进行平滑，提高稳定性
-    状态模型:
+    模型:
         x_k = x_(k-1) + w_k
         z_k = x_k + v_k
     """
 
     def __init__(self, process_variance=1e-7, measurement_variance=1e-5,
                  initial_estimate=0.0, initial_error=1.0):
-        # 过程噪声方差 Q
         self.Q = process_variance
-        # 测量噪声方差 R
         self.R = measurement_variance
-
-        # 当前状态估计
         self.x = initial_estimate
-        # 当前误差协方差
         self.P = initial_error
-
-        # 是否已初始化
         self.initialized = False
 
     def reset(self):
-        """重置滤波器状态"""
         self.x = 0.0
         self.P = 1.0
         self.initialized = False
 
     def update(self, measurement):
-        """
-        输入一个观测值，输出滤波后的估计值
-        """
         if not self.initialized:
             self.x = measurement
             self.P = 1.0
             self.initialized = True
             return self.x
 
-        # 1. 预测
         x_pred = self.x
         P_pred = self.P + self.Q
 
-        # 2. 更新
-        K = P_pred / (P_pred + self.R)  # 卡尔曼增益
+        K = P_pred / (P_pred + self.R)
         self.x = x_pred + K * (measurement - x_pred)
         self.P = (1 - K) * P_pred
 
@@ -62,85 +98,77 @@ class KalmanFilter1D:
 
 
 class DataProcessor:
-    def __init__(self, humidity=0.0, process_variance=1e-7, measurement_variance=1e-5):
-        self.humidity = humidity  # 湿度作为全局变量
-        self.reference_data = []  # 存储参考光数据
-        self.measurement_data = []  # 存储测量光数据
+    def __init__(self, humidity=0.0):
+        self.humidity = humidity
 
-        # 原始数据（可选保存，便于调试）
+        # 最终输出数据
+        self.reference_data = []
+        self.measurement_data = []
+
+        # 中间过程数据
         self.raw_reference_data = []
         self.raw_measurement_data = []
 
-        # 分别为参考光和测量光配置卡尔曼滤波器
+        self.outlier_reference_data = []
+        self.outlier_measurement_data = []
+
+        self.kalman_reference_data = []
+        self.kalman_measurement_data = []
+
+        # 初始化卡尔曼滤波器
         self.ref_kf = KalmanFilter1D(
-            process_variance=process_variance,
-            measurement_variance=measurement_variance,
-            initial_estimate=0.0,
-            initial_error=1.0
+            process_variance=PROCESS_VARIANCE,
+            measurement_variance=MEASUREMENT_VARIANCE
         )
         self.meas_kf = KalmanFilter1D(
-            process_variance=process_variance,
-            measurement_variance=measurement_variance,
-            initial_estimate=0.0,
-            initial_error=1.0
+            process_variance=PROCESS_VARIANCE,
+            measurement_variance=MEASUREMENT_VARIANCE
         )
-
-    def set_humidity(self, humidity):
-        """设置湿度值"""
-        self.humidity = humidity
 
     def hex_string_to_binary(self, hex_string):
         """将十六进制字符串转换为二进制数据"""
         try:
-            # 移除空格、换行等空白字符
             hex_string = ''.join(hex_string.split())
 
-            # 确保十六进制字符串长度为偶数
             if len(hex_string) % 2 != 0:
                 print("警告: 十六进制字符串长度不是偶数")
                 return None
 
-            # 转换为二进制数据
-            binary_data = bytes.fromhex(hex_string)
-            return binary_data
+            return bytes.fromhex(hex_string)
+
         except Exception as e:
             print(f"十六进制转换错误: {e}")
             return None
 
     def parse_voltage_packets(self, binary_data):
-        """解析电压数据包，每包10字节"""
+        """按 10 字节分包"""
         packets = []
         packet_size = 10
 
         for i in range(0, len(binary_data), packet_size):
             if i + packet_size > len(binary_data):
                 break
-
-            packet = binary_data[i:i + packet_size]
-            packets.append(packet)
+            packets.append(binary_data[i:i + packet_size])
 
         return packets
 
     def is_abnormal_frame(self, data_bytes):
-        """判断是否为异常帧"""
+        """判断协议层异常帧"""
         if len(data_bytes) < 7:
             return True
 
-        # 数据部分为 data_bytes[3:7]
         data_part = data_bytes[3:7]
 
-        # 全0
         if data_part == b'\x00\x00\x00\x00':
             return True
 
-        # 全FF
         if data_part == b'\xFF\xFF\xFF\xFF':
             return True
 
         return False
 
     def parse_serial_data(self, data_bytes):
-        """解析串口数据"""
+        """解析串口协议数据"""
         if len(data_bytes) != 10:
             return None, None
 
@@ -149,50 +177,163 @@ class DataProcessor:
             return None, None
 
         # 协议尾
-        if data_bytes[8] != 0x0D:
-            return None, None
-        if data_bytes[9] != 0x0A:
+        if data_bytes[8] != 0x0D or data_bytes[9] != 0x0A:
             return None, None
 
-        # 异常帧过滤
+        # 异常帧
         if self.is_abnormal_frame(data_bytes):
             return None, None
 
-        # 数据类型
         data_type = data_bytes[2]
 
-        # 校验和验证
+        # 校验和
         checksum = sum(data_bytes[3:7]) & 0xFF
         if checksum != data_bytes[7]:
             return None, None
 
-        # 小端序解析电压
+        # 小端序解析电压值
         voltage_bytes = bytes(data_bytes[3:7])
         voltage = struct.unpack('<I', voltage_bytes)[0] / 1000000.0
 
         return data_type, voltage
 
+    def suppress_outliers(self, signal):
+        """
+        异常值抑制:
+        若当前点偏离局部窗口均值超过 OUTLIER_SIGMA * std，
+        则用局部均值替代
+        """
+        signal = np.asarray(signal, dtype=float)
+
+        if len(signal) < OUTLIER_WINDOW + 2:
+            return signal.copy()
+
+        filtered = signal.copy()
+        half_w = max(1, OUTLIER_WINDOW // 2)
+
+        for i in range(len(signal)):
+            left = max(0, i - half_w)
+            right = min(len(signal), i + half_w + 1)
+
+            window_data = np.concatenate([signal[left:i], signal[i + 1:right]])
+            if len(window_data) < 2:
+                continue
+
+            local_mean = np.mean(window_data)
+            local_std = np.std(window_data)
+
+            if local_std == 0:
+                continue
+
+            if abs(signal[i] - local_mean) > OUTLIER_SIGMA * local_std:
+                filtered[i] = local_mean
+
+        return filtered
+
+    def apply_kalman_filter(self, signal, kf):
+        """对一维信号序列应用卡尔曼滤波"""
+        signal = np.asarray(signal, dtype=float)
+        if len(signal) == 0:
+            return signal.copy()
+
+        kf.reset()
+        filtered = []
+
+        for value in signal:
+            filtered.append(kf.update(value))
+
+        return np.array(filtered, dtype=float)
+
+    def wavelet_denoise(self, signal):
+        """小波去噪"""
+        try:
+            signal = np.asarray(signal, dtype=float)
+
+            if len(signal) < 4:
+                return signal.copy()
+
+            wavelet_obj = pywt.Wavelet(WAVELET_NAME)
+            max_level = pywt.dwt_max_level(len(signal), wavelet_obj.dec_len)
+            level = min(WAVELET_LEVEL, max_level)
+
+            if level < 1:
+                return signal.copy()
+
+            coeffs = pywt.wavedec(signal, WAVELET_NAME, level=level)
+
+            detail_coeffs = coeffs[-1]
+            if len(detail_coeffs) == 0:
+                return signal.copy()
+
+            sigma = np.median(np.abs(detail_coeffs)) / 0.6745
+            threshold = THRESHOLD_SCALE * sigma * np.sqrt(2 * np.log(len(signal)))
+
+            new_coeffs = [coeffs[0]]
+            for c in coeffs[1:]:
+                new_coeffs.append(pywt.threshold(c, threshold, mode='soft'))
+
+            denoised = pywt.waverec(new_coeffs, WAVELET_NAME)
+            denoised = denoised[:len(signal)]
+
+            return np.array(denoised, dtype=float)
+
+        except Exception as e:
+            print(f"小波去噪错误: {e}")
+            return signal.copy()
+
+    def process_signal_pipeline(self, raw_signal, signal_type="signal"):
+        """
+        单路信号处理流程:
+        原始 -> [异常值抑制] -> [卡尔曼滤波] -> [小波去噪]
+        通过全局标志位决定是否启用各步骤
+        """
+        raw_signal = np.asarray(raw_signal, dtype=float)
+
+        if len(raw_signal) == 0:
+            return raw_signal.copy(), raw_signal.copy(), raw_signal.copy()
+
+        current_signal = raw_signal.copy()
+
+        # 1. 异常值抑制
+        if ENABLE_OUTLIER_SUPPRESSION:
+            outlier_suppressed = self.suppress_outliers(current_signal)
+        else:
+            outlier_suppressed = current_signal.copy()
+
+        current_signal = outlier_suppressed.copy()
+
+        # 2. 卡尔曼滤波
+        if ENABLE_KALMAN_FILTER:
+            if signal_type == "reference":
+                kalman_filtered = self.apply_kalman_filter(current_signal, self.ref_kf)
+            else:
+                kalman_filtered = self.apply_kalman_filter(current_signal, self.meas_kf)
+        else:
+            kalman_filtered = current_signal.copy()
+
+        current_signal = kalman_filtered.copy()
+
+        # 3. 小波去噪
+        if ENABLE_WAVELET_DENOISE:
+            final_signal = self.wavelet_denoise(current_signal)
+        else:
+            final_signal = current_signal.copy()
+
+        return outlier_suppressed, kalman_filtered, final_signal
+
     def process_txt_data(self, file_path):
-        """处理TXT格式原始数据文件，并在解算后进行卡尔曼滤波"""
+        """处理单个 TXT 原始数据文件"""
         reference_voltages = []
         measurement_voltages = []
-        raw_reference_voltages = []
-        raw_measurement_voltages = []
-
-        # 每个文件处理前重置滤波器，避免跨文件串扰
-        self.ref_kf.reset()
-        self.meas_kf.reset()
 
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 text_content = f.read().strip()
 
-            # 十六进制转二进制
             binary_data = self.hex_string_to_binary(text_content)
             if binary_data is None:
                 return False
 
-            # 分包
             packets = self.parse_voltage_packets(binary_data)
 
             valid_packets = 0
@@ -210,33 +351,51 @@ class DataProcessor:
                     continue
 
                 if data_type == 0x01:  # 测量光
-                    raw_measurement_voltages.append(voltage)
-                    filtered_voltage = self.meas_kf.update(voltage)
-                    measurement_voltages.append(filtered_voltage)
+                    measurement_voltages.append(voltage)
                     valid_packets += 1
 
                 elif data_type == 0x02:  # 参考光
-                    raw_reference_voltages.append(voltage)
-                    filtered_voltage = self.ref_kf.update(voltage)
-                    reference_voltages.append(filtered_voltage)
+                    reference_voltages.append(voltage)
                     valid_packets += 1
 
             print(f"  有效数据包: {valid_packets}, 异常帧: {abnormal_packets}, 校验错误: {checksum_error_packets}")
-            print(f"  参考光点数: {len(reference_voltages)}, 测量光点数: {len(measurement_voltages)}")
+            print(f"  原始参考光点数: {len(reference_voltages)}, 原始测量光点数: {len(measurement_voltages)}")
 
         except Exception as e:
             print(f"处理TXT文件错误: {e}")
             return False
 
-        self.raw_reference_data = np.array(raw_reference_voltages, dtype=float)
-        self.raw_measurement_data = np.array(raw_measurement_voltages, dtype=float)
-        self.reference_data = np.array(reference_voltages, dtype=float)
-        self.measurement_data = np.array(measurement_voltages, dtype=float)
+        self.raw_reference_data = np.array(reference_voltages, dtype=float)
+        self.raw_measurement_data = np.array(measurement_voltages, dtype=float)
+
+        if len(self.raw_reference_data) == 0 or len(self.raw_measurement_data) == 0:
+            return False
+
+        # 参考光处理
+        ref_outlier, ref_kalman, ref_final = self.process_signal_pipeline(
+            self.raw_reference_data, signal_type="reference"
+        )
+
+        # 测量光处理
+        meas_outlier, meas_kalman, meas_final = self.process_signal_pipeline(
+            self.raw_measurement_data, signal_type="measurement"
+        )
+
+        self.outlier_reference_data = ref_outlier
+        self.outlier_measurement_data = meas_outlier
+
+        self.kalman_reference_data = ref_kalman
+        self.kalman_measurement_data = meas_kalman
+
+        self.reference_data = ref_final
+        self.measurement_data = meas_final
+
+        print(f"  最终参考光点数: {len(self.reference_data)}, 最终测量光点数: {len(self.measurement_data)}")
 
         return len(self.reference_data) > 0 and len(self.measurement_data) > 0
 
     def calculate_features(self):
-        """计算所有特征"""
+        """基于最终稳定序列计算特征"""
         if len(self.reference_data) == 0 or len(self.measurement_data) == 0:
             return None
 
@@ -284,7 +443,7 @@ class DataProcessor:
         range_meas = np.max(self.measurement_data) - np.min(self.measurement_data)
         features.extend([range_ref, range_meas])
 
-        # 16-17. 差值特征和归一化差值
+        # 16-17. 差值与归一化差值
         diff_mean = mean_ref - mean_meas
         norm_diff = diff_mean / (mean_ref + mean_meas) if (mean_ref + mean_meas) != 0 else 0
         features.extend([diff_mean, norm_diff])
@@ -304,7 +463,7 @@ class DataProcessor:
         return features
 
     def save_features_to_txt(self, features, output_path):
-        """保存特征到TXT文件"""
+        """保存特征到 TXT 文件"""
         if features is None:
             print("没有特征数据可保存")
             return False
@@ -317,75 +476,71 @@ class DataProcessor:
             with open(output_path, 'w', encoding='utf-8') as f:
                 for value in features:
                     f.write(f"{value:.6f}\n")
+
             return True
 
         except Exception as e:
-            print(f"保存文件错误: {e}")
+            print(f"保存特征文件错误: {e}")
             return False
 
-    def save_filtered_series(self, output_path):
-        """
-        可选：保存滤波后的参考光/测量光序列，便于分析稳定性
-        """
+    def save_processing_series(self, output_path):
+        """保存处理链各阶段序列到 CSV"""
         try:
             output_dir = os.path.dirname(output_path)
             if output_dir:
                 os.makedirs(output_dir, exist_ok=True)
 
-            max_len = max(len(self.reference_data), len(self.measurement_data),
-                          len(self.raw_reference_data), len(self.raw_measurement_data))
+            max_len = max(
+                len(self.raw_reference_data),
+                len(self.outlier_reference_data),
+                len(self.kalman_reference_data),
+                len(self.reference_data),
+                len(self.raw_measurement_data),
+                len(self.outlier_measurement_data),
+                len(self.kalman_measurement_data),
+                len(self.measurement_data)
+            )
 
             with open(output_path, 'w', encoding='utf-8') as f:
-                f.write("index,raw_reference,filtered_reference,raw_measurement,filtered_measurement\n")
+                f.write(
+                    "index,"
+                    "raw_reference,outlier_reference,kalman_reference,final_reference,"
+                    "raw_measurement,outlier_measurement,kalman_measurement,final_measurement\n"
+                )
+
                 for i in range(max_len):
                     raw_ref = self.raw_reference_data[i] if i < len(self.raw_reference_data) else ""
-                    fil_ref = self.reference_data[i] if i < len(self.reference_data) else ""
+                    out_ref = self.outlier_reference_data[i] if i < len(self.outlier_reference_data) else ""
+                    kal_ref = self.kalman_reference_data[i] if i < len(self.kalman_reference_data) else ""
+                    fin_ref = self.reference_data[i] if i < len(self.reference_data) else ""
+
                     raw_meas = self.raw_measurement_data[i] if i < len(self.raw_measurement_data) else ""
-                    fil_meas = self.measurement_data[i] if i < len(self.measurement_data) else ""
-                    f.write(f"{i},{raw_ref},{fil_ref},{raw_meas},{fil_meas}\n")
+                    out_meas = self.outlier_measurement_data[i] if i < len(self.outlier_measurement_data) else ""
+                    kal_meas = self.kalman_measurement_data[i] if i < len(self.kalman_measurement_data) else ""
+                    fin_meas = self.measurement_data[i] if i < len(self.measurement_data) else ""
+
+                    f.write(
+                        f"{i},"
+                        f"{raw_ref},{out_ref},{kal_ref},{fin_ref},"
+                        f"{raw_meas},{out_meas},{kal_meas},{fin_meas}\n"
+                    )
+
             return True
 
         except Exception as e:
-            print(f"保存滤波序列错误: {e}")
+            print(f"保存处理链序列错误: {e}")
             return False
 
 
-def load_config(config_file="config.json"):
-    """加载配置文件"""
-    default_config = {
-        "input_folder": "D:/Desktop/sensor_data",
-        "output_folder": "D:/Desktop/sensor_python/data_output",
-        "process_variance": 1e-7,
-        "measurement_variance": 1e-5,
-        "save_filtered_series": False
-    }
-
-    if os.path.exists(config_file):
-        try:
-            with open(config_file, 'r', encoding='utf-8') as f:
-                user_config = json.load(f)
-                default_config.update(user_config)
-            print(f"已加载配置文件: {config_file}")
-        except Exception as e:
-            print(f"配置文件加载失败，使用默认配置: {e}")
-
-    return default_config
-
-
-def save_config(config, config_file="config.json"):
-    """保存配置文件"""
-    try:
-        with open(config_file, 'w', encoding='utf-8') as f:
-            json.dump(config, f, indent=4, ensure_ascii=False)
-        print(f"配置文件已保存: {config_file}")
-    except Exception as e:
-        print(f"保存配置文件失败: {e}")
-
-
 def find_data_files(input_folder):
-    """查找符合命名规则的数据文件"""
-    pattern1 = r'(\d+\.\d+)_(\d+)\.txt$'   # 14.86_1.txt
-    pattern2 = r'(\d+\.\d+)\.txt$'         # 16.67.txt
+    """
+    查找符合命名规则的数据文件
+    支持:
+    - 14.86_1.txt
+    - 16.67.txt
+    """
+    pattern1 = r'(\d+\.\d+)_(\d+)\.txt$'
+    pattern2 = r'(\d+\.\d+)\.txt$'
 
     data_files = []
     txt_files = glob.glob(os.path.join(input_folder, "*.txt"))
@@ -393,11 +548,12 @@ def find_data_files(input_folder):
     for file_path in txt_files:
         filename = os.path.basename(file_path)
 
-        # 跳过非数据文件
-        if filename == "amaoComDataLogT.txt":
+        if filename in SKIP_FILES:
             continue
+
         if filename.endswith("_feature.txt"):
             continue
+
         if filename.endswith("_series.csv"):
             continue
 
@@ -408,6 +564,7 @@ def find_data_files(input_folder):
             humidity_level = float(match1.group(1))
             file_number = int(match1.group(2))
             data_files.append((humidity_level, file_number, file_path, filename))
+
         elif match2:
             humidity_level = float(match2.group(1))
             file_number = 1
@@ -417,42 +574,128 @@ def find_data_files(input_folder):
     return data_files
 
 
-def process_batch_files(input_folder, output_folder,
-                        process_variance=1e-7,
-                        measurement_variance=1e-5,
-                        save_filtered_series=False):
-    """批量处理文件，每个输入文件对应一个输出文件"""
-    data_files = find_data_files(input_folder)
+def plot_mean_voltage_distribution(humidity_ref_dict, humidity_meas_dict, output_folder):
+    """
+    绘制每个湿度下“每个文件平均电压”的散点分布图
+    横坐标：湿度
+    纵坐标：平均电压
+    蓝色：参考光平均电压
+    红色：测量光平均电压
+    """
+    humidities = sorted(set(list(humidity_ref_dict.keys()) + list(humidity_meas_dict.keys())))
+    if not humidities:
+        print("没有可用于绘图的数据")
+        return
+
+    plt.figure(figsize=(14, 7))
+
+    first_ref = True
+    first_meas = True
+
+    for h in humidities:
+        ref_means = humidity_ref_dict[h]
+        meas_means = humidity_meas_dict[h]
+
+        # 参考光点，略向左偏移
+        if len(ref_means) > 0:
+            if PLOT_JITTER:
+                x_ref = np.random.normal(loc=h - 0.03, scale=PLOT_JITTER_SCALE, size=len(ref_means))
+            else:
+                x_ref = np.full(len(ref_means), h - 0.03)
+
+            plt.scatter(
+                x_ref, ref_means,
+                s=40, alpha=0.8, color='blue',
+                label='参考光平均电压' if first_ref else ""
+            )
+            first_ref = False
+
+        # 测量光点，略向右偏移
+        if len(meas_means) > 0:
+            if PLOT_JITTER:
+                x_meas = np.random.normal(loc=h + 0.03, scale=PLOT_JITTER_SCALE, size=len(meas_means))
+            else:
+                x_meas = np.full(len(meas_means), h + 0.03)
+
+            plt.scatter(
+                x_meas, meas_means,
+                s=40, alpha=0.8, color='red',
+                label='测量光平均电压' if first_meas else ""
+            )
+            first_meas = False
+
+    plt.xlabel("湿度")
+    plt.ylabel("平均电压")
+    plt.title("各湿度对应文件平均电压分布图")
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.3)
+    plt.tight_layout()
+
+    output_path = os.path.join(output_folder, "humidity_mean_voltage_scatter.png")
+    plt.savefig(output_path, dpi=300)
+    plt.close()
+
+    print("✓ 各湿度平均电压分布图已保存:")
+    print(f"  {output_path}")
+
+
+def process_batch_files():
+    """批量处理文件"""
+    if not os.path.exists(INPUT_FOLDER):
+        print(f"输入文件夹不存在: {INPUT_FOLDER}")
+        return False
+
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
+    data_files = find_data_files(INPUT_FOLDER)
 
     if not data_files:
         print("未找到符合命名规则的文件（格式：数字.数字_数字.txt 或 数字.数字.txt）")
-        txt_files = glob.glob(os.path.join(input_folder, "*.txt"))
+        txt_files = glob.glob(os.path.join(INPUT_FOLDER, "*.txt"))
         if txt_files:
             print("文件夹中的文件:")
             for file in txt_files:
                 print(f"  {os.path.basename(file)}")
         return False
 
+    print(f"输入文件夹: {INPUT_FOLDER}")
+    print(f"输出文件夹: {OUTPUT_FOLDER}")
     print(f"找到 {len(data_files)} 个数据文件")
-    print(f"卡尔曼滤波参数: Q={process_variance}, R={measurement_variance}")
+    print("=" * 60)
+    print("当前配置参数:")
+    print(f"  SAVE_PROCESSING_SERIES       = {SAVE_PROCESSING_SERIES}")
+    print(f"  ENABLE_OUTLIER_SUPPRESSION   = {ENABLE_OUTLIER_SUPPRESSION}")
+    print(f"  ENABLE_KALMAN_FILTER         = {ENABLE_KALMAN_FILTER}")
+    print(f"  ENABLE_WAVELET_DENOISE       = {ENABLE_WAVELET_DENOISE}")
+    print(f"  ENABLE_PLOT_DISTRIBUTION     = {ENABLE_PLOT_DISTRIBUTION}")
+    print(f"  PLOT_USE_FINAL_SIGNAL        = {PLOT_USE_FINAL_SIGNAL}")
+    print(f"  PLOT_JITTER                  = {PLOT_JITTER}")
+    print(f"  PLOT_JITTER_SCALE            = {PLOT_JITTER_SCALE}")
+    print(f"  PROCESS_VARIANCE             = {PROCESS_VARIANCE}")
+    print(f"  MEASUREMENT_VARIANCE         = {MEASUREMENT_VARIANCE}")
+    print(f"  OUTLIER_WINDOW               = {OUTLIER_WINDOW}")
+    print(f"  OUTLIER_SIGMA                = {OUTLIER_SIGMA}")
+    print(f"  WAVELET_NAME                 = {WAVELET_NAME}")
+    print(f"  WAVELET_LEVEL                = {WAVELET_LEVEL}")
+    print(f"  THRESHOLD_SCALE              = {THRESHOLD_SCALE}")
+    print("=" * 60)
 
     total_processed = 0
-    os.makedirs(output_folder, exist_ok=True)
+
+    # 用于绘制“每个湿度下各文件平均电压分布图”
+    humidity_ref_dict = defaultdict(list)
+    humidity_meas_dict = defaultdict(list)
 
     for humidity_level, file_number, file_path, filename in data_files:
-        print(f"\n{'=' * 50}")
+        print(f"\n{'=' * 60}")
         print(f"处理文件: {filename}")
         print(f"湿度值: {humidity_level}")
-        print(f"{'=' * 50}")
+        print(f"{'=' * 60}")
 
         output_filename = os.path.splitext(filename)[0] + "_feature.txt"
-        output_file = os.path.join(output_folder, output_filename)
+        output_file = os.path.join(OUTPUT_FOLDER, output_filename)
 
-        processor = DataProcessor(
-            humidity=humidity_level,
-            process_variance=process_variance,
-            measurement_variance=measurement_variance
-        )
+        processor = DataProcessor(humidity=humidity_level)
 
         if processor.process_txt_data(file_path):
             features = processor.calculate_features()
@@ -463,105 +706,46 @@ def process_batch_files(input_folder, output_folder,
                     print("✓ 成功处理")
                     print(f"输出特征文件: {output_filename}")
 
-                    if save_filtered_series:
+                    if SAVE_PROCESSING_SERIES:
                         series_filename = os.path.splitext(filename)[0] + "_series.csv"
-                        series_file = os.path.join(output_folder, series_filename)
-                        if processor.save_filtered_series(series_file):
-                            print(f"输出滤波序列文件: {series_filename}")
+                        series_file = os.path.join(OUTPUT_FOLDER, series_filename)
+                        if processor.save_processing_series(series_file):
+                            print(f"输出处理链序列文件: {series_filename}")
+
+                    # 收集“每个文件的平均电压”
+                    if ENABLE_PLOT_DISTRIBUTION:
+                        if PLOT_USE_FINAL_SIGNAL:
+                            ref_mean = np.mean(processor.reference_data)
+                            meas_mean = np.mean(processor.measurement_data)
+                        else:
+                            ref_mean = np.mean(processor.raw_reference_data)
+                            meas_mean = np.mean(processor.raw_measurement_data)
+
+                        humidity_ref_dict[humidity_level].append(ref_mean)
+                        humidity_meas_dict[humidity_level].append(meas_mean)
+
+                        print(f"  文件参考光平均电压: {ref_mean:.6f}")
+                        print(f"  文件测量光平均电压: {meas_mean:.6f}")
+
                 else:
-                    print("✗ 保存失败")
+                    print("✗ 特征保存失败")
             else:
                 print("✗ 特征计算失败")
         else:
             print("✗ 数据处理失败")
 
-    print(f"\n{'=' * 50}")
+    # 绘图
+    if ENABLE_PLOT_DISTRIBUTION and total_processed > 0:
+        plot_mean_voltage_distribution(humidity_ref_dict, humidity_meas_dict, OUTPUT_FOLDER)
+
+    print(f"\n{'=' * 60}")
     print("批量处理完成！")
     print(f"共成功处理 {total_processed}/{len(data_files)} 个文件")
-    print(f"输出文件夹: {output_folder}")
-    print("每个输入文件对应一个独立的输出文件")
-    print(f"{'=' * 50}")
+    print(f"输出文件夹: {OUTPUT_FOLDER}")
+    print(f"{'=' * 60}")
 
     return total_processed > 0
 
 
-def main():
-    parser = argparse.ArgumentParser(description='数据处理程序 - 提取光学特征 + 卡尔曼滤波')
-    parser.add_argument('-if', '--input-folder', type=str, help='输入文件夹路径（批量处理）')
-    parser.add_argument('-of', '--output-folder', type=str, help='输出文件夹路径')
-    parser.add_argument('-c', '--config', type=str, default='config.json', help='配置文件路径')
-    parser.add_argument('--create-config', action='store_true', help='创建默认配置文件')
-    parser.add_argument('--batch', action='store_true', help='批量处理模式（默认模式）')
-
-    # 新增卡尔曼滤波参数
-    parser.add_argument('--q', type=float, help='卡尔曼滤波过程噪声方差 Q')
-    parser.add_argument('--r', type=float, help='卡尔曼滤波测量噪声方差 R')
-    parser.add_argument('--save-series', action='store_true', help='保存滤波前后序列对比文件')
-
-    args = parser.parse_args()
-
-    if args.create_config:
-        default_config = {
-            "input_folder": "D:\\Desktop\\sensor_data",
-            "output_folder": "D:\\Desktop\\sensor_python\\data_output",
-            "process_variance": 1e-7,
-            "measurement_variance": 1e-5,
-            "save_filtered_series": False
-        }
-        save_config(default_config, args.config)
-        print("默认配置文件已创建，请根据需要修改路径和滤波参数")
-        return
-
-    config = load_config(args.config)
-
-    if args.batch or not any([args.input_folder, args.output_folder]):
-        # 输入目录
-        if args.input_folder:
-            input_folder = args.input_folder
-        else:
-            input_folder = config.get('input_folder')
-            if not input_folder:
-                print("请指定输入文件夹路径")
-                print("使用方法: python script.py --input-folder <路径>")
-                print("或修改配置文件中的 input_folder 设置")
-                return
-
-        # 输出目录
-        if args.output_folder:
-            output_folder = args.output_folder
-        else:
-            output_folder = config.get('output_folder', './output_features')
-
-        # 滤波参数
-        process_variance = args.q if args.q is not None else config.get('process_variance', 1e-7)
-        measurement_variance = args.r if args.r is not None else config.get('measurement_variance', 1e-5)
-
-        # 是否保存序列
-        save_filtered_series = args.save_series or config.get('save_filtered_series', False)
-
-        if not os.path.exists(input_folder):
-            print(f"输入文件夹不存在: {input_folder}")
-            return
-
-        print(f"输入文件夹: {input_folder}")
-        print(f"输出文件夹: {output_folder}")
-        print(f"过程噪声方差 Q: {process_variance}")
-        print(f"测量噪声方差 R: {measurement_variance}")
-        print(f"保存滤波序列: {save_filtered_series}")
-        print(f"{'=' * 50}")
-
-        process_batch_files(
-            input_folder=input_folder,
-            output_folder=output_folder,
-            process_variance=process_variance,
-            measurement_variance=measurement_variance,
-            save_filtered_series=save_filtered_series
-        )
-        return
-
-    print("单文件处理模式已简化，建议使用批量处理模式")
-    print("使用方法: python script.py --batch --input-folder <输入文件夹> --output-folder <输出文件夹>")
-
-
 if __name__ == "__main__":
-    main()
+    process_batch_files()

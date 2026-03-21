@@ -20,7 +20,7 @@ extern  MS_Motor_Params_t  MS4005;
 
 
 uint32_t Motor_Id = 0x141;
-u16 MaxSpeed = 600;
+u16 MaxSpeed = 1000;
 uint8_t key_press = 0;
 
 
@@ -113,7 +113,7 @@ void Motor_Init(void)
 	 MS4005.angle_last = 0;
 	 MS4005.angle_error = 0;
 	 MS4005.motor_rotate_count = 0; //初始旋转计数
-	 motor_gpio_init();
+	 //motor_gpio_init(); //光电传感器外部中断
 	 
 	 delay_ms(500);
 }
@@ -186,10 +186,9 @@ void Motor_control(void)
 				 if (key_press == 0) {
 					key_press = 1;
 					GPIO_SetBits(GPIOD,GPIO_Pin_8);  // 测量灯亮	 
-	        Multiloop_position_closedloop_control1(Motor_Id ,0);	//位置归零		
+	        Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);	//位置归零		
           MS4005.motor_rotate_count = 0;					 
 				  vTaskDelay(pdMS_TO_TICKS(500));  //等待led电流源稳定
-					Incremental_position_closed_loop2( Motor_Id,MaxSpeed,100);	 //顺时针旋转1度
 				  xTimerStart(xTimers, 0) ;
 							
 				 }
@@ -199,12 +198,10 @@ void Motor_control(void)
 					if (key_press == 0) {
 					key_press = 2;
 				  GPIO_ResetBits(GPIOD,GPIO_Pin_8);    // 参考灯亮
-	        Multiloop_position_closedloop_control1(Motor_Id ,0);
+	        Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);	//位置归零		
 					MS4005.motor_rotate_count = 0;
 					vTaskDelay(pdMS_TO_TICKS(500)); //给电流源稳定的时间
-					Incremental_position_closed_loop2( Motor_Id,MaxSpeed,100);	 //顺时针旋转1度		
 				  xTimerStart(xTimers, 0);						
-
 					}
 					break;
 
@@ -237,15 +234,18 @@ void Motor_control(void)
 				vTaskDelay(1);  //1us脉冲
 		    GPIO_ResetBits(GPIOD,GPIO_Pin_10);
 				
-        MS4005.motor_rotate_count++;
 				printf("motor_rotate_count: %d   angle_now:  %.2f   motor_encoder: %d \r\n",MS4005.motor_rotate_count, MS4005.angle_now, MS4005.encoder);
+        
+				MS4005.motor_rotate_count++;       
         if(MS4005.motor_rotate_count < 360)
 				 {
-					Incremental_position_closed_loop2( Motor_Id,MaxSpeed,100);	 //顺时针旋转1度		
+					//Incremental_position_closed_loop2( Motor_Id,MaxSpeed,100);	 //顺时针旋转1度		
+					 Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, MS4005.motor_rotate_count*100);
+					 
 				 }	
         else	
 				{
-				 MS4005.motor_rotate_count = 0;
+				  MS4005.motor_rotate_count = 0;
 				 
 					xTimerStop(xTimers, 0) ;
 					key_press = 0;
@@ -258,7 +258,7 @@ void Motor_control(void)
 //				
 //			}
 		}			
-		 vTaskDelay(5);
+		 vTaskDelay(10);
 	}
 }
 

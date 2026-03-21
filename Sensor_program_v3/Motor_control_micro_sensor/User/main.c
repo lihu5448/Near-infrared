@@ -68,7 +68,7 @@ int main(void)
 	  在移植文件port.c中的函数prvStartFirstTask中会重新开启全局中断。通过指令cpsie i开启，__set_PRIMASK(1)
 	  和cpsie i是等效的。
      */
-	__set_PRIMASK(1);  
+ 	__set_PRIMASK(1);  
 	
 	/* 创建任务 */
 	AppTaskCreate();
@@ -226,7 +226,7 @@ static void AppTaskCreate (void)
                  "vTaskUserIF",     	/* 任务名    */
                  512,               	/* 任务栈大小，单位word，也就是4字节 */
                  NULL,              	/* 任务参数  */
-                 4,                 	/* 任务优先级*/
+                 3,                 	/* 任务优先级*/
                  &xHandleTaskUserIF );  /* 任务句柄  */
 
 	
@@ -234,7 +234,7 @@ static void AppTaskCreate (void)
                  "vTaskMsgPro",   		/* 任务名    */
                  512,             		/* 任务栈大小，单位word，也就是4字节 */
                  NULL,           		  /* 任务参数  */
-                 3,               		/* 任务优先级*/
+                 4,               		/* 任务优先级*/
                  &xHandleTaskMsgPro );  /* 任务句柄  */
 	
 	

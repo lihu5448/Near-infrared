@@ -27,15 +27,17 @@ extern uint8_t key_press ;
    如果你希望更精确，可用固定点算法（我也可以给）。 */
 #define ENC_TICKS_PER_DEG       ((ENC_CPR + 180u) / 360u)   /* ≈ 91 */
 
-/* 认为完成一步(1°)需要累计达到的tick数 */
-#define STEP_TICKS_THRESHOLD    (ENC_TICKS_PER_DEG)
-
 /* 抖动/噪声过滤：小于等于此变化量的抖动忽略（按你实际噪声可调 1~5） */
-#define ENC_NOISE_IGNORE_TICKS  2u
+#define ENC_NOISE_IGNORE_TICKS  1u
 
 /* 防御：一次跳变太大（例如异常值/错帧）时的上限（可选）
    正常 5ms 问询不可能跳很大；若出现很大delta，宁愿丢掉这次以免误触发 */
 #define ENC_DELTA_SANITY_MAX    5000u
+
+
+int32_t delta;
+uint32_t adelta;
+
 void motor_data_process(CanRxMsg g_tCanRxMsg)
 {	
 	
@@ -142,22 +144,19 @@ void motor_data_process(CanRxMsg g_tCanRxMsg)
 		 
        MS4005.angle_now =  (float)(MS4005.encoder)* 360.0f / 32768.0f;
 		 
-			 if(key_press!= 0)
-			  {			
-         MS4005.angle_error = MS4005.angle_now - MS4005.angle_last;					
-         if(MS4005.angle_error >=0.9f || (0 - MS4005.angle_error) > 200.0f ) 
-			   {
-
-				  xResult = xEventGroupSetBits(Motor_rotate_event, /* 事件标志组句柄 */
-									                           BIT_0              /* 设置bit0 */
-							                        );	
-	 			  MS4005.angle_last =  MS4005.angle_now; //旋转完成，更新上次角度值					 
-			   }
-				 else
-				 {
-				   xTimerStop(xTimers, 0);  //定时器失能
-				 }
-			  }				 	   
+       /* 仅在扫描状态做 1°完成判定 */
+       if (key_press != 0)
+          {
+						 MS4005.angle_error = MS4005.angle_now - MS4005.motor_rotate_count;
+						 if (MS4005.angle_error > 180.0f)  MS4005.angle_error -= 360.0f;
+             if (MS4005.angle_error < -180.0f) MS4005.angle_error += 360.0f;
+						
+						 if( MS4005.angle_error < 0.1)
+						 {
+                xEventGroupSetBits(Motor_rotate_event, BIT_0);
+                MS4005.angle_last = MS4005.angle_now;			 
+						 }
+          }		 	   
 			break;
 		 
 			

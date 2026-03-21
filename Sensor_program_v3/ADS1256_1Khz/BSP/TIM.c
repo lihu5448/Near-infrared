@@ -43,27 +43,40 @@ float frq;
   */
 void tim_start(void)
 {
-	TIM_TimeBaseInitTypeDef TIM_BaseInitStructure;
-	NVIC_InitTypeDef NVIC_InitStructure;
-	
-	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM14, ENABLE);  
+    TIM_TimeBaseInitTypeDef TIM_BaseInitStructure;
+    NVIC_InitTypeDef NVIC_InitStructure;
+    
+    RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM14, ENABLE);  
 
-	TIM_ClearFlag(TIM14,TIM_IT_Update);
-	NVIC_InitStructure.NVIC_IRQChannel = TIM14_IRQn;
-	NVIC_InitStructure.NVIC_IRQChannelPriority = 0x00;
-	NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
-	NVIC_Init(&NVIC_InitStructure);
-	TIM_ITConfig(TIM14,TIM_IT_Update,ENABLE);//使能接收中断
-	
-	frq = 48000000/FRQ_DIVE;	
-	TIM_BaseInitStructure.TIM_Period = OVERFLOW_PERIOD-1;
-	TIM_BaseInitStructure.TIM_Prescaler = (FRQ_DIVE-1);
-	TIM_BaseInitStructure.TIM_ClockDivision = 0;
-	TIM_BaseInitStructure.TIM_CounterMode = TIM_CounterMode_Up;
-	TIM_BaseInitStructure.TIM_RepetitionCounter = 0;
-	TIM_TimeBaseInit(TIM14, &TIM_BaseInitStructure);
-	TIM_Cmd(TIM14, ENABLE);
-	last_cnt = TIM_GetCounter(TIM14);
+    TIM_ClearFlag(TIM14,TIM_IT_Update);
+	  
+    NVIC_InitStructure.NVIC_IRQChannel = TIM14_IRQn;
+    NVIC_InitStructure.NVIC_IRQChannelPriority = 0x04;
+    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
+    NVIC_Init(&NVIC_InitStructure);
+    TIM_ITConfig(TIM14,TIM_IT_Update,ENABLE);
+    
+    // 使用最大可能值来提高精度
+    // 48MHz / 65535 ≈ 732Hz
+    // 732Hz * 732 ≈ 536Hz (不正好是1秒)
+    // 所以需要用精确计算
+    
+    // 精确计算：48MHz = 48,000,000
+    // 需要 预分频器 * 自动重装值 = 48,000,000
+    
+    // 方案2.1: 使用整数因子
+    #define TIM_PRESCALER    48000   // 48,000
+    #define TIM_PERIOD       1000    // 1,000
+    // 48,000 * 1,000 = 48,000,000 正好
+    
+    TIM_BaseInitStructure.TIM_Period = TIM_PERIOD - 1;
+    TIM_BaseInitStructure.TIM_Prescaler = TIM_PRESCALER - 1;
+    TIM_BaseInitStructure.TIM_ClockDivision = 0;
+    TIM_BaseInitStructure.TIM_CounterMode = TIM_CounterMode_Up;
+    TIM_BaseInitStructure.TIM_RepetitionCounter = 0;
+    TIM_TimeBaseInit(TIM14, &TIM_BaseInitStructure);
+    
+    TIM_Cmd(TIM14, ENABLE);
 }
 
 /**
@@ -71,13 +84,27 @@ void tim_start(void)
   * @param  无
   * @retval 无
   */
+// TIM14 中断服务函数 - 用于判断新的一圈数据
+
+//允许adc读标志位
+extern uint8_t read_ok_flag;
+
+//测量计数 
+extern int32_t measuring_count;
+extern int32_t measuring_count_last;
 void TIM14_IRQHandler(void)
 {
-	if(TIM_GetITStatus(TIM14,TIM_IT_Update) != RESET)
-	{
-			TIM_ClearITPendingBit(TIM14,TIM_IT_Update); 
-			overflow_flag++;
-	}
+  if(TIM_GetITStatus(TIM14, TIM_IT_Update) != RESET)
+   {
+      TIM_ClearITPendingBit(TIM14, TIM_IT_Update);  
+		  if(measuring_count - measuring_count_last < 5) //1s内读取次数小于5  清楚标志位
+			{
+		    //清除计数和标志位
+        measuring_count = 0;
+				measuring_count_last = 0;				
+		    read_ok_flag = 0;			
+			}        
+   }
 }
 
 /**
