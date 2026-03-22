@@ -50,11 +50,6 @@
 .\flash\obj\bsp_key.o: D:\Program Files\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\..\include\string.h
 .\flash\obj\bsp_key.o: D:\Program Files\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\..\include\stdlib.h
 .\flash\obj\bsp_key.o: ..\..\User\bsp\bsp_can.h
-.\flash\obj\bsp_key.o: ..\..\User\bsp\inc\bsp_uart_fifo.h
-.\flash\obj\bsp_key.o: ..\..\User\bsp\inc\bsp_led.h
-.\flash\obj\bsp_key.o: ..\..\User\bsp\inc\bsp_key.h
-.\flash\obj\bsp_key.o: ..\..\User\bsp\inc\bsp_tim_pwm.h
-.\flash\obj\bsp_key.o: ..\..\User\Motor_control.h
 .\flash\obj\bsp_key.o: ..\..\User\includes.h
 .\flash\obj\bsp_key.o: D:\Program Files\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\..\include\stdarg.h
 .\flash\obj\bsp_key.o: D:\Program Files\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\..\include\math.h
@@ -65,7 +60,12 @@
 .\flash\obj\bsp_key.o: ..\..\FreeRTOS\include\event_groups.h
 .\flash\obj\bsp_key.o: ..\..\FreeRTOS\include\timers.h
 .\flash\obj\bsp_key.o: ..\..\User\bsp\bsp.h
+.\flash\obj\bsp_key.o: ..\..\User\bsp\bsp_can.h
+.\flash\obj\bsp_key.o: ..\..\User\bsp\inc\bsp_uart_fifo.h
+.\flash\obj\bsp_key.o: ..\..\User\bsp\inc\bsp_led.h
+.\flash\obj\bsp_key.o: ..\..\User\bsp\inc\bsp_key.h
+.\flash\obj\bsp_key.o: ..\..\User\bsp\inc\bsp_tim_pwm.h
 .\flash\obj\bsp_key.o: ..\..\User\Motor_control.h
-.\flash\obj\bsp_key.o: ..\..\User\Motor_data_process.h
 .\flash\obj\bsp_key.o: ..\..\User\includes.h
+.\flash\obj\bsp_key.o: ..\..\User\Motor_data_process.h
 .\flash\obj\bsp_key.o: ..\..\User\delay.h

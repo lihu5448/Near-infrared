@@ -10,43 +10,16 @@
 
 
 MS_Motor_Params_t  MS4005;
-extern EventGroupHandle_t Motor_rotate_event;
+
 extern TaskHandle_t g_motor_control_task;
 
-
-extern SemaphoreHandle_t encoder_init_flag;  //  二值信号量  用于读取初始编码器值 的标志位
-extern SemaphoreHandle_t encoder_read_finish ;
-extern TimerHandle_t xTimers;
 extern uint8_t key_press ;
-extern uint8_t flag;
 
-/* ====== 编码器步进检测====== */
-/* 你的编码器一圈 32768 count */
-#define ENC_CPR                 32768u
-
-/* 1°对应的encoder tick，约 32768/360 = 91.02
-   这里用四舍五入的整数 91（足够稳定）
-   如果你希望更精确，可用固定点算法（我也可以给）。 */
-#define ENC_TICKS_PER_DEG       ((ENC_CPR + 180u) / 360u)   /* ≈ 91 */
-
-/* 抖动/噪声过滤：小于等于此变化量的抖动忽略（按你实际噪声可调 1~5） */
-#define ENC_NOISE_IGNORE_TICKS  1u
-
-/* 防御：一次跳变太大（例如异常值/错帧）时的上限（可选）
-   正常 5ms 问询不可能跳很大；若出现很大delta，宁愿丢掉这次以免误触发 */
-#define ENC_DELTA_SANITY_MAX    5000u
-
-
-int32_t delta;
-uint32_t adelta;
 int32_t d;
 uint32_t ad;
+
 void motor_data_process(CanRxMsg g_tCanRxMsg)
 {	
-	
-//  BaseType_t xResult;
-//	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-	
 	switch(g_tCanRxMsg.Data[0])
 	  {
 	   case  0x9A:    // 读取当前电机的温度、电压和错误状态标志       读取电机状态1

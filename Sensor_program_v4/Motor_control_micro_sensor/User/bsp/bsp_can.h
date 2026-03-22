@@ -14,8 +14,11 @@
 #ifndef _BSP_CAN_H_
 #define _BSP_CAN_H_
 
-void bsp_InitCan2(void);
+#include "includes.h"
 
+void bsp_InitCan2(void);
+uint8_t CAN2_SendMsg_IT(const CanTxMsg *pMsg, TickType_t xTicksToWait);
+	
 #endif
 
 

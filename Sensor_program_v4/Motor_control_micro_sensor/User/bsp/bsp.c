@@ -41,17 +41,17 @@ void bsp_Init(void)
 
 	delay_init(168);		  //初始化延时函数
 	
-	bsp_InitUart(); 	/* 初始化串口 */
-	
-	printf("init OK!\r\n");
+	bsp_InitLed(); 		/* 初始LED指示灯端口 和  控制采集板切换led引脚 都设置为低电平  一定要先测量光后参考光  要不触发不了  参考光LED*/	
 	
 	bsp_InitKey();		/* 初始化按键变量 */
- 
-	bsp_InitLed(); 		/* 初始LED指示灯端口 */
+	
+	bsp_InitUart(); 	/* 初始化串口 */
     
   bsp_InitCan2();
 	
 	Motor_Init();
+	
+	printf("init OK!\r\n");
 }
 
 

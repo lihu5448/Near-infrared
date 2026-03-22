@@ -50,13 +50,12 @@ void LED_Init(void)
   GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;//上拉
   GPIO_Init(GPIOD, &GPIO_InitStructure);//初始化GPIO
 	
-  GPIO_ResetBits(GPIOD,GPIO_Pin_8 | GPIO_Pin_10);//设置高， 电流源不输出
-
+  GPIO_ResetBits(GPIOD,GPIO_Pin_8 | GPIO_Pin_10);  //都是低电平
 }
 
 void bsp_InitLed(void)
 {
-    LED_Init();
+  LED_Init();
 	bsp_LedOff(1);
 	bsp_LedOff(2);
 }

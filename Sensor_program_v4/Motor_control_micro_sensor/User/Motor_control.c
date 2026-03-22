@@ -110,12 +110,13 @@ void Motor_Init(void)
 //	 target_angle = (int32_t)(target_encoder)*100 * 360 / 32768;
 //	 Multiloop_position_closedloop_control1(Motor_Id , target_angle);
 	
-   Multiloop_position_closedloop_control1(Motor_Id , 0);	
+   Multiloop_position_closedloop_control2(Motor_Id ,MaxSpeed , 0);	
 	
 	 MS4005.angle_last = 0;
 	 MS4005.angle_error = 0;
 	 MS4005.motor_rotate_count = 0; //初始旋转计数
-	 //motor_gpio_init(); //光电传感器外部中断
+	
+	// motor_gpio_init(); //光电传感器外部中断
 	 
 	 delay_ms(500);
 }
@@ -178,13 +179,14 @@ static float wrap_err_deg(float err)
     return err;
 }
 
+
+//脉冲触发ADC采集
 static void adc_trigger_pulse_pd10(void)
 {
     //GPIO_SetBits(GPIOD, GPIO_Pin_10); 
     GPIOD->BSRRL = GPIO_Pin_10;
     // 注意：这是 1 个 tick，不是 1us
-    // 若 ADC 板要求 us 级脉宽，需要换 delay_us 或定时器脉冲
-    vTaskDelay(1);
+    vTaskDelay(5);
 		GPIOD->BSRRH = GPIO_Pin_10;
 	
     //GPIO_ResetBits(GPIOD, GPIO_Pin_10);
@@ -204,159 +206,164 @@ void Motor_control(void)
 	{	
 		  /* 处理按键事件 */
 		  ucKeyCode = bsp_GetKey();	
-	   	if (ucKeyCode > 0)
-		   {
-				/* 有键按下 */
-			 switch (ucKeyCode)
+				if (ucKeyCode > 0)
+				 {
+					/* 有键按下 */
+				 switch (ucKeyCode)
 				{
-	 			 case KEY_DOWN_K0:			  /* K0键    测量灯亮  开始测量 */
-    if (key_press == 0)
-    {
-        key_press = 1;
-        GPIO_SetBits(GPIOD, GPIO_Pin_8);  // 测量灯亮
+					case KEY_DOWN_K0:			  /* K0键    测量灯亮  开始测量 */
+					 if (key_press == 0)
+							{
+								key_press = 1;
+								GPIO_SetBits(GPIOD, GPIO_Pin_8);  // 测量灯亮
 
-        /* 先回到 0° */
-        Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
+								Motor_operation(Motor_Id); 				
+							  vTaskDelay(pdMS_TO_TICKS(100)); 
+								/* 先回到 0° */   
+								Incremental_position_closed_loop2(Motor_Id, MaxSpeed, 500);	
 
-        MS4005.motor_rotate_count = 0;
+							  vTaskDelay(pdMS_TO_TICKS(200));   
+								Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
+								MS4005.motor_rotate_count = 0;
+							  vTaskDelay(pdMS_TO_TICKS(500));   // 等待led电流源稳定
 
-        vTaskDelay(pdMS_TO_TICKS(500));   // 等待led电流源稳定
+								xTimerStart(xTimers, 0);
 
-        xTimerStart(xTimers, 0);
+								/* 清空通知残留，避免刚开始稳定计数被旧通知冲掉 */
+								ulTaskNotifyTake(pdTRUE, 0xFFFFFFFF);
 
-        /* 清空通知残留，避免刚开始稳定计数被旧通知冲掉 */
-        ulTaskNotifyTake(pdTRUE, 0xFFFFFFFF);
+								for (target_deg = 0; target_deg <= 360; target_deg++)
+								{
+										/* ========= 发命令（前5°增量，后面位置）========= */
+										if (target_deg == 0)
+										{
+												Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
+										}
+										else if (target_deg <= 5)
+										{
+												/* 前5°：增量 +1°（100 = 1.00°） */
+												Incremental_position_closed_loop2(Motor_Id, MaxSpeed, 100);
+										}
+										else
+										{
+												Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, (int32_t)target_deg * 100);
+										}
 
-        for (target_deg = 0; target_deg <= 360; target_deg++)
-        {
-            /* ========= 发命令（前5°增量，后面位置）========= */
-            if (target_deg == 0)
-            {
-                Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
-            }
-            else if (target_deg <= 5)
-            {
-                /* 前5°：增量 +1°（100 = 1.00°） */
-                Incremental_position_closed_loop2(Motor_Id, MaxSpeed, 100);
-            }
-            else
-            {
-                Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, (int32_t)target_deg * 100);
-            }
+										/* ========= ticks到位判定 ========= */
+										target_enc = deg_to_target_enc((uint16_t)(target_deg % 360)); 
+										/* 注意：360°与0°同tick，所以这里用 %360 */
 
-            /* ========= ticks到位判定 ========= */
-            target_enc = deg_to_target_enc((uint16_t)(target_deg % 360)); 
-            /* 注意：360°与0°同tick，所以这里用 %360 */
+										stable = 0;
 
-            stable = 0;
+										while (stable < STABLE_N)
+										{
+												got = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(300));
+												if (got == 0)
+												{
+														/* 超时：继续等（可加超时退出机制） */
+														continue;
+												}
 
-            while (stable < STABLE_N)
-            {
-                got = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(300));
-                if (got == 0)
-                {
-                    /* 超时：继续等（可加超时退出机制） */
-                    continue;
-                }
+												err_ticks = enc_err_wrap((int32_t)MS4005.encoder, (int32_t)target_enc);
 
-                err_ticks = enc_err_wrap((int32_t)MS4005.encoder, (int32_t)target_enc);
+												if (err_ticks <= WINDOW_TICKS && err_ticks >= -WINDOW_TICKS)
+														stable++;
+												else
+														stable = 0;
+										}
 
-                if (err_ticks <= WINDOW_TICKS && err_ticks >= -WINDOW_TICKS)
-                    stable++;
-                else
-                    stable = 0;
-            }
+										/* ========= 到位稳定后触发采样 ========= */
+										adc_trigger_pulse_pd10();
 
-            /* ========= 到位稳定后触发采样 ========= */
-            adc_trigger_pulse_pd10();
+										printf("target_deg=%d enc=%u target_enc=%u err_ticks=%ld\r\n",
+													 target_deg,
+													 (unsigned)MS4005.encoder,
+													 (unsigned)target_enc,
+													 (long)enc_err_wrap((int32_t)MS4005.encoder, (int32_t)target_enc));
+								}
 
-            printf("target_deg=%d enc=%u target_enc=%u err_ticks=%ld\r\n",
-                   target_deg,
-                   (unsigned)MS4005.encoder,
-                   (unsigned)target_enc,
-                   (long)enc_err_wrap((int32_t)MS4005.encoder, (int32_t)target_enc));
-        }
-
-        /* 扫描完成 */
-        xTimerStop(xTimers, 0);
-        key_press = 0;
-        MS4005.motor_rotate_count = 0;
-    }
+								/* 扫描完成 */
+								xTimerStop(xTimers, 0);
+								key_press = 0;
+								MS4005.motor_rotate_count = 0;
+						}
 					break; 
 
 				case KEY_DOWN_K1:			  /* K1键    参考灯正转一圈*/
-     if (key_press == 0)
-     {
-        key_press = 1;
-         GPIO_ResetBits(GPIOD, GPIO_Pin_8);  // 参考灯亮
+					 if (key_press == 0)
+					  {
+							key_press = 1;
+							 GPIO_ResetBits(GPIOD, GPIO_Pin_8);  // 参考灯亮
 
-        /* 先回到 0° */
-        Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
+							/* 先回到 0° */
+							Incremental_position_closed_loop2(Motor_Id, MaxSpeed, 500);	
+							vTaskDelay(100);  
+							Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
 
-        MS4005.motor_rotate_count = 0;
+							MS4005.motor_rotate_count = 0;
 
-        vTaskDelay(pdMS_TO_TICKS(500));   // 等待led电流源稳定
+							vTaskDelay(pdMS_TO_TICKS(500));   // 等待led电流源稳定
 
-        xTimerStart(xTimers, 0);
+							xTimerStart(xTimers, 0);
 
-        /* 清空通知残留，避免刚开始稳定计数被旧通知冲掉 */
-        ulTaskNotifyTake(pdTRUE, 0xFFFFFFFF);
+							/* 清空通知残留，避免刚开始稳定计数被旧通知冲掉 */
+							ulTaskNotifyTake(pdTRUE, 0xFFFFFFFF);
 
-        for (target_deg = 0; target_deg <= 360; target_deg++)
-        {
-            /* ========= 发命令（前5°增量，后面位置）========= */
-            if (target_deg == 0)
-            {
-                Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
-            }
-            else if (target_deg <= 5)
-            {
-                /* 前5°：增量 +1°（100 = 1.00°） */
-                Incremental_position_closed_loop2(Motor_Id, MaxSpeed, 100);
-            }
-            else
-            {
-                Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, (int32_t)target_deg * 100);
-            }
+							for (target_deg = 0; target_deg <= 360; target_deg++)
+							{
+									/* ========= 发命令（前5°增量，后面位置）========= */
+									if (target_deg == 0)
+									{
+											Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
+									}
+									else if (target_deg <= 5)
+									{
+											/* 前5°：增量 +1°（100 = 1.00°） */
+											Incremental_position_closed_loop2(Motor_Id, MaxSpeed, 100);
+									}
+									else
+									{
+											Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, (int32_t)target_deg * 100);
+									}
 
-            /* ========= ticks到位判定 ========= */
-            target_enc = deg_to_target_enc((uint16_t)(target_deg % 360)); 
-            /* 注意：360°与0°同tick，所以这里用 %360 */
+									/* ========= ticks到位判定 ========= */
+									target_enc = deg_to_target_enc((uint16_t)(target_deg % 360)); 
+									/* 注意：360°与0°同tick，所以这里用 %360 */
 
-            stable = 0;
+									stable = 0;
 
-            while (stable < STABLE_N)
-            {
-                got = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(300));
-                if (got == 0)
-                {
-                    /* 超时：继续等（可加超时退出机制） */
-                    continue;
-                }
+									while (stable < STABLE_N)
+									{
+											got = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(300));
+											if (got == 0)
+											{
+													/* 超时：继续等（可加超时退出机制） */
+													continue;
+											}
 
-                err_ticks = enc_err_wrap((int32_t)MS4005.encoder, (int32_t)target_enc);
+											err_ticks = enc_err_wrap((int32_t)MS4005.encoder, (int32_t)target_enc);
 
-                if (err_ticks <= WINDOW_TICKS && err_ticks >= -WINDOW_TICKS)
-                    stable++;
-                else
-                    stable = 0;
-            }
+											if (err_ticks <= WINDOW_TICKS && err_ticks >= -WINDOW_TICKS)
+													stable++;
+											else
+													stable = 0;
+									}
 
-            /* ========= 到位稳定后触发采样 ========= */
-            adc_trigger_pulse_pd10();
+									/* ========= 到位稳定后触发采样 ========= */
+									adc_trigger_pulse_pd10();
 
-            printf("target_deg=%d enc=%u target_enc=%u err_ticks=%ld\r\n",
-                   target_deg,
-                   (unsigned)MS4005.encoder,
-                   (unsigned)target_enc,
-                   (long)enc_err_wrap((int32_t)MS4005.encoder, (int32_t)target_enc));
-        }
+									printf("target_deg=%d enc=%u target_enc=%u err_ticks=%ld\r\n",
+												 target_deg,
+												 (unsigned)MS4005.encoder,
+												 (unsigned)target_enc,
+												 (long)enc_err_wrap((int32_t)MS4005.encoder, (int32_t)target_enc));
+							}
 
-        /* 扫描完成 */
-        xTimerStop(xTimers, 0);
-        key_press = 0;
-        MS4005.motor_rotate_count = 0;
-        }
+							/* 扫描完成 */
+							xTimerStop(xTimers, 0);
+							key_press = 0;
+							MS4005.motor_rotate_count = 0;
+							}
 					break;
 
 				case KEY_DOWN_WKUP:			/* 电机停止 */
@@ -380,13 +387,19 @@ case 1:              /* K0键    测量灯亮  开始测量 */
     {
         key_press = 1;
         GPIO_SetBits(GPIOD, GPIO_Pin_8);  // 测量灯亮
-
+			
+				 Motor_operation(Motor_Id); 
+	
+	      delay_ms(500);
+			  //vTaskDelay(pdMS_TO_TICKS(500));   // 等待led电流源稳定
         /* 先回到 0° */
-        Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
+        Incremental_position_closed_loop2( Motor_Id,MaxSpeed,6000);	
+	      delay_ms(200);			   
+			  Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
 
         MS4005.motor_rotate_count = 0;
 
-        vTaskDelay(pdMS_TO_TICKS(500));   // 等待led电流源稳定
+
 
         xTimerStart(xTimers, 0);
 
@@ -457,7 +470,9 @@ case 1:              /* K0键    测量灯亮  开始测量 */
          GPIO_ResetBits(GPIOD, GPIO_Pin_8);  // 参考灯亮
 
         /* 先回到 0° */
-        Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
+        Incremental_position_closed_loop2(Motor_Id, MaxSpeed, 500);	
+			  vTaskDelay(100);  
+			  Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
 
         MS4005.motor_rotate_count = 0;
 
@@ -634,7 +649,7 @@ void Read_the_motor_status1(uint32_t Motor_id)
   g_tCanTxMsg.Data[6] = 0x00;
   g_tCanTxMsg.Data[7] = 0x00;	
 	
-  CAN_Transmit(CAN2, &g_tCanTxMsg);	
+  CAN2_SendMsg_IT(&g_tCanTxMsg,pdMS_TO_TICKS(10));
 }
 
 
@@ -668,7 +683,7 @@ void Read_the_motor_status2(uint32_t Motor_id)
   g_tCanTxMsg.Data[6] = 0x00;
   g_tCanTxMsg.Data[7] = 0x00;	
 	
-  CAN_Transmit(CAN2, &g_tCanTxMsg);	
+  CAN2_SendMsg_IT(&g_tCanTxMsg,pdMS_TO_TICKS(10));
 }
 
 
@@ -702,7 +717,7 @@ void Clear_the_motor_error_flag(uint32_t Motor_id)
   g_tCanTxMsg.Data[6] = 0x00;
   g_tCanTxMsg.Data[7] = 0x00;	
 	
-  CAN_Transmit(CAN2, &g_tCanTxMsg);	
+  CAN2_SendMsg_IT(&g_tCanTxMsg,pdMS_TO_TICKS(10));
 }
 
 
@@ -735,7 +750,7 @@ void Motor_close(uint32_t Motor_id)
   g_tCanTxMsg.Data[6] = 0x00;
   g_tCanTxMsg.Data[7] = 0x00;	
 	
-  CAN_Transmit(CAN2, &g_tCanTxMsg);	
+  CAN2_SendMsg_IT(&g_tCanTxMsg,pdMS_TO_TICKS(10));
 }
 
 /*
@@ -767,7 +782,7 @@ void Motor_operation(uint32_t Motor_id)
   g_tCanTxMsg.Data[6] = 0x00;
   g_tCanTxMsg.Data[7] = 0x00;	
 	
-  CAN_Transmit(CAN2, &g_tCanTxMsg);	
+  CAN2_SendMsg_IT(&g_tCanTxMsg,pdMS_TO_TICKS(10));
 }
 
 /*
@@ -799,7 +814,7 @@ void Motor_stop(uint32_t Motor_id)
   g_tCanTxMsg.Data[6] = 0x00;
   g_tCanTxMsg.Data[7] = 0x00;	
 	
-  CAN_Transmit(CAN2, &g_tCanTxMsg);	
+  CAN2_SendMsg_IT(&g_tCanTxMsg,pdMS_TO_TICKS(10));
 }
 
 
@@ -834,7 +849,7 @@ void Brake_control(uint32_t Motor_id,u8 command)
   g_tCanTxMsg.Data[6] = 0x00;
   g_tCanTxMsg.Data[7] = 0x00;	
 	
-  CAN_Transmit(CAN2, &g_tCanTxMsg);	
+  CAN2_SendMsg_IT(&g_tCanTxMsg,pdMS_TO_TICKS(10));
 }
 
 
@@ -868,7 +883,7 @@ void Motor_openloop_control(uint32_t Motor_id, int16_t powerControl)
   g_tCanTxMsg.Data[6] = 0x00;
   g_tCanTxMsg.Data[7] = 0x00;	
 	
-  CAN_Transmit(CAN2, &g_tCanTxMsg);	
+  CAN2_SendMsg_IT(&g_tCanTxMsg,pdMS_TO_TICKS(10));
 }
 
 /*
@@ -900,7 +915,7 @@ void MotorSpeed_closedloop_control(uint32_t Motor_id, int32_t speedControl)
   g_tCanTxMsg.Data[6] = *((uint8_t *)(&speedControl)+2);
   g_tCanTxMsg.Data[7] = *((uint8_t *)(&speedControl)+3);	
 	
-  CAN_Transmit(CAN2, &g_tCanTxMsg);	
+  CAN2_SendMsg_IT(&g_tCanTxMsg,pdMS_TO_TICKS(10));
 }
 
 /*
@@ -933,7 +948,7 @@ void Multiloop_position_closedloop_control1(uint32_t Motor_id, int32_t angleCont
   g_tCanTxMsg.Data[6] = *((uint8_t *)(&angleControl)+2);
   g_tCanTxMsg.Data[7] = *((uint8_t *)(&angleControl)+3);	
 	
-  CAN_Transmit(CAN2, &g_tCanTxMsg);	
+  CAN2_SendMsg_IT(&g_tCanTxMsg,pdMS_TO_TICKS(10));
 }
 
 /*
@@ -967,7 +982,7 @@ void Multiloop_position_closedloop_control2(uint32_t Motor_id, uint16_t maxSpeed
   g_tCanTxMsg.Data[6] = *((uint8_t *)(&angleControl)+2);
   g_tCanTxMsg.Data[7] = *((uint8_t *)(&angleControl)+3);	
 	
-  CAN_Transmit(CAN2, &g_tCanTxMsg);	
+  CAN2_SendMsg_IT(&g_tCanTxMsg,pdMS_TO_TICKS(10));
 }
 
 
@@ -1001,7 +1016,7 @@ void Singleloop_position_closedloop_control1(uint32_t Motor_id, uint8_t spinDire
   g_tCanTxMsg.Data[6] = *((uint8_t *)(&angleControl)+2);
   g_tCanTxMsg.Data[7] = *((uint8_t *)(&angleControl)+3);	
 	
-  CAN_Transmit(CAN2, &g_tCanTxMsg);	
+  CAN2_SendMsg_IT(&g_tCanTxMsg,pdMS_TO_TICKS(10));
 }
 
 /*
@@ -1035,7 +1050,7 @@ void Singleloop_position_closedloop_control2(uint32_t Motor_id, uint8_t spinDire
   g_tCanTxMsg.Data[6] = *((uint8_t *)(&angleControl)+2);
   g_tCanTxMsg.Data[7] = *((uint8_t *)(&angleControl)+3);	
 	
-  CAN_Transmit(CAN2, &g_tCanTxMsg);	
+  CAN2_SendMsg_IT(&g_tCanTxMsg,pdMS_TO_TICKS(10));
 }
 
 /*
@@ -1067,7 +1082,7 @@ void Incremental_position_closed_loop1(uint32_t Motor_id,int32_t angleIncrement)
   g_tCanTxMsg.Data[6] = *((uint8_t *)(& angleIncrement)+2);
   g_tCanTxMsg.Data[7] = *((uint8_t *)(& angleIncrement)+3);	
 	
-  CAN_Transmit(CAN2, &g_tCanTxMsg);	
+  CAN2_SendMsg_IT(&g_tCanTxMsg,pdMS_TO_TICKS(10));
 }
 /*
 *********************************************************************************************************
@@ -1098,7 +1113,7 @@ void Incremental_position_closed_loop2(uint32_t Motor_id,uint32_t maxSpeed,int32
   g_tCanTxMsg.Data[6] = *((uint8_t *)(& angleIncrement)+2);
   g_tCanTxMsg.Data[7] = *((uint8_t *)(& angleIncrement)+3);	
 	
-  CAN_Transmit(CAN2, &g_tCanTxMsg);	
+  CAN2_SendMsg_IT(&g_tCanTxMsg,pdMS_TO_TICKS(10));
 }
 
 
@@ -1133,7 +1148,7 @@ void Read_the_control_parameters(uint32_t Motor_id,uint8_t index)
   g_tCanTxMsg.Data[6] = 0x00;
   g_tCanTxMsg.Data[7] = 0x00;	
 	
-  CAN_Transmit(CAN2, &g_tCanTxMsg);	
+  CAN2_SendMsg_IT(&g_tCanTxMsg,pdMS_TO_TICKS(10));
 }
 
 /*
@@ -1164,7 +1179,7 @@ void Set_the_control_parameters(uint32_t Motor_id,uint8_t index,uint8_t Control_
   g_tCanTxMsg.Data[5] = Control_Parameter[3];
   g_tCanTxMsg.Data[6] = Control_Parameter[4];
   g_tCanTxMsg.Data[7] = Control_Parameter[5];	
-  CAN_Transmit(CAN2, &g_tCanTxMsg);	
+  CAN2_SendMsg_IT(&g_tCanTxMsg,pdMS_TO_TICKS(10));
 }
 
 
@@ -1196,7 +1211,7 @@ void Read_encoder_data(uint32_t Motor_id)
   g_tCanTxMsg.Data[6] = 0x00;
   g_tCanTxMsg.Data[7] = 0x00;	
 	
-  CAN_Transmit(CAN2, &g_tCanTxMsg);	
+  CAN2_SendMsg_IT(&g_tCanTxMsg,pdMS_TO_TICKS(10));
 }
 
 
@@ -1228,7 +1243,7 @@ void Write_encoder_to_ROM(uint32_t Motor_id,uint16_t encoderOffset)
   g_tCanTxMsg.Data[6] = *(uint8_t *)(&encoderOffset);
   g_tCanTxMsg.Data[7] =	*((uint8_t *)(&encoderOffset)+1);	
 	
-  CAN_Transmit(CAN2, &g_tCanTxMsg);	
+  CAN2_SendMsg_IT(&g_tCanTxMsg,pdMS_TO_TICKS(10));
 }
 
 /*
@@ -1259,7 +1274,7 @@ void Write_the_current_position_to_ROM(uint32_t Motor_id)
   g_tCanTxMsg.Data[6] = 0x00;
   g_tCanTxMsg.Data[7] =	0x00;	
 	
-  CAN_Transmit(CAN2, &g_tCanTxMsg);	
+  CAN2_SendMsg_IT(&g_tCanTxMsg,pdMS_TO_TICKS(10));
 }
 
 
@@ -1292,7 +1307,7 @@ void Read_the_Multiloop_angle(uint32_t Motor_id)
   g_tCanTxMsg.Data[6] = 0x00;
   g_tCanTxMsg.Data[7] =	0x00;	
 	
-  CAN_Transmit(CAN2, &g_tCanTxMsg);	
+  CAN2_SendMsg_IT(&g_tCanTxMsg,pdMS_TO_TICKS(10));
 }
 
 /*
@@ -1323,7 +1338,7 @@ void Read_the_Singleloop_angle(uint32_t Motor_id)
   g_tCanTxMsg.Data[6] = 0x00;
   g_tCanTxMsg.Data[7] =	0x00;	
 	
-  CAN_Transmit(CAN2, &g_tCanTxMsg);	
+  CAN2_SendMsg_IT(&g_tCanTxMsg,pdMS_TO_TICKS(10));
 }
 
 /*
@@ -1355,6 +1370,6 @@ void Set_multiloop_angle_to_current_position(uint32_t Motor_id,int32_t motorAngl
   g_tCanTxMsg.Data[6] = *((uint8_t *)(& motorAngle)+2);
   g_tCanTxMsg.Data[7] =	*((uint8_t *)(& motorAngle)+3);	
 	
-  CAN_Transmit(CAN2, &g_tCanTxMsg);	
+  CAN2_SendMsg_IT(&g_tCanTxMsg,pdMS_TO_TICKS(10));
 }
 

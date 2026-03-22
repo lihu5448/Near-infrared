@@ -13,17 +13,6 @@
 #define CAN_RX_SOURCE              GPIO_PinSource12
 #define CAN_TX_SOURCE              GPIO_PinSource13
 
-/*
-	应用层协议:（自定义简单协议）	
-	01  01    --- 控制LED指示灯翻转 
-	              第1个字节是命令代码
-				  第2个字节表示指示灯序号(1-4)
-	02  00    --- 控制蜂鸣器
-	              第1个字节表示命令代码，
-	              第2个字节固定为01，表示鸣叫1次
-*/
-
-
 /* 定义全局变量 */
 extern CanTxMsg g_tCanTxMsg;	/* 用于发送 */
 extern CanRxMsg g_tCanRxMsg;	/* 用于接收 */
@@ -50,9 +39,19 @@ static void can_NVIC_Config(void)
 	NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0x00;
 	NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
 	NVIC_Init(&NVIC_InitStructure);
-	
 	/* CAN FIFO0 消息接收中断使能 */ 
 	CAN_ITConfig(CANx, CAN_IT_FMP0, ENABLE);	
+
+  /*---------------- CAN2 TX ----------------*/
+  NVIC_InitStructure.NVIC_IRQChannel = CAN2_TX_IRQn;
+  /* TX 中断优先级你可以按需求调整；通常不高于 RX */
+  NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0x02;
+  NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0x00;
+  NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
+  NVIC_Init(&NVIC_InitStructure);	
+
+  /* 发送邮箱空中断使能（TME） */
+  CAN_ITConfig(CANx, CAN_IT_TME, DISABLE);
 }
 /*
 *********************************************************************************************************
@@ -164,6 +163,71 @@ void CAN2_RX0_IRQHandler(void)
 		portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 	}
 }
+
+
+/*
+*********************************************************************************************************
+*	函 数 名: CAN2_TX_IRQHandler
+*	功能说明: CAN发送中断服务程序（第一种方式：完全靠中断抽队列发送）
+*	形    参: 无
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+void CAN2_TX_IRQHandler(void)
+{
+	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+	CanTxMsg txmsg;
+
+	if (CAN_GetITStatus(CAN2, CAN_IT_TME) != RESET)
+	{
+		/* 清除中断标志 */
+		CAN_ClearITPendingBit(CAN2, CAN_IT_TME);
+
+		/* 队列中有数据就继续发送，否则关闭 TME 中断避免空转 */
+		if (xQueueReceiveFromISR(xQueue2, &txmsg, &xHigherPriorityTaskWoken) == pdPASS)
+		{
+			(void)CAN_Transmit(CAN2, &txmsg);
+		}
+		else
+		{
+			CAN_ITConfig(CAN2, CAN_IT_TME, DISABLE);
+		}
+
+		portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+	}
+}
+
+/*
+*********************************************************************************************************
+*	函 数 名: CAN2_SendMsg_IT
+*	功能说明: 第一种方式：只负责入队 + 开启TME中断，让ISR去发送
+*	形    参: pMsg: 需要发送的CAN报文
+*	          xTicksToWait: 入队阻塞时间
+*	返 回 值: 1 成功，0 失败
+*********************************************************************************************************
+*/
+uint8_t CAN2_SendMsg_IT(const CanTxMsg *pMsg, TickType_t xTicksToWait)
+{
+	if (xQueueSend(xQueue2, pMsg, xTicksToWait) != pdPASS)
+	{
+		return 0;
+	}
+
+	/*
+	  关键：确保 TX 中断打开。
+	  如果当前邮箱空，打开中断后可能会触发 ISR，
+	  ISR 会从队列取数据并发送。
+	*/
+	CAN_ITConfig(CAN2, CAN_IT_TME, ENABLE);
+
+	return 1;
+}
+
+
+
+
+
+
 
 
 

@@ -150,7 +150,7 @@ static void vTaskMsgPro(void *pvParameters)
 {
 	 BaseType_t xResult;
    CanRxMsg CanRx_info;
-	
+	 CanTxMsg CanTx_info;
     while(1)
     {
 			xResult = xQueueReceive(xQueue1,                   /* 消息队列句柄 */
@@ -164,15 +164,14 @@ static void vTaskMsgPro(void *pvParameters)
 	
 			
 				
-	//消息队列2留给串口		
-			
-//			xResult = xQueueReceive(xQueue2,                   /* 消息队列句柄 */
-//		                        (void *)&CanRx_info,  /* 存储接收到的数据到变量ucQueueMsgValue中 */
+//	//消息队列2留	
+//			
+//		xResult = xQueueReceive(xQueue2,                   /* 消息队列句柄 */
+//		                        (void *)&CanTx_info,  /* 存储接收到的数据到变量ucQueueMsgValue中 */
 //		                        (TickType_t)portMAX_DELAY);/* 设置阻塞时间 */
 //		
 //		if(xResult == pdPASS)
 //			{
-//			  motor_data_process( CanRx_info);
 //			}				
 			
 			vTaskDelay(1); 
@@ -288,18 +287,18 @@ static void AppObjCreate (void)
     }
 		
 		
-	Motor_rotate_event = xEventGroupCreate();
-		if(Motor_rotate_event == NULL)
-		{ 
-			/* 没有创建成功，用户可以在这里加入创建失败的处理机制 */
-		  }	
-		
-	// 	
-	encoder_init_flag = xSemaphoreCreateCounting(2,2);
-		if(encoder_init_flag == NULL)
-		{ 
-			/* 没有创建成功，用户可以在这里加入创建失败的处理机制 */
-		  }	
+//	Motor_rotate_event = xEventGroupCreate();
+//		if(Motor_rotate_event == NULL)
+//		{ 
+//			/* 没有创建成功，用户可以在这里加入创建失败的处理机制 */
+//		  }	
+//		
+//	// 	
+//	encoder_init_flag = xSemaphoreCreateCounting(2,2);
+//		if(encoder_init_flag == NULL)
+//		{ 
+//			/* 没有创建成功，用户可以在这里加入创建失败的处理机制 */
+//		  }	
 		
 			
 

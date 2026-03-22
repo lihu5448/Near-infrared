@@ -34,6 +34,8 @@ uint8_t read_ok_flag = 0;
 int32_t measuring_count = 0;
 int32_t measuring_count_last = 0;
 
+
+int32_t tiaoshi_count = 0 ,tiaoshi_count_last = 0;
 /*******************************************************************************
 对固定通道进行连续采样测试
 *******************************************************************************/
@@ -154,21 +156,19 @@ void EXTI2_3_IRQHandler(void)
 {   
    if(( EXTI->PR & (1<<2)) != (uint32_t)RESET )
    {     	 
-		 if(GPIOA->IDR & (1<<2)) 
-		 {	
-       if(ADS1255_DRDY()==0)
-		    {	     			
-				  Vol[measuring_count] = ADS1255_ContinuousRead_AdcData(); 
-				}	
-				
+//		 if(GPIOA->IDR & (1<<2)) 
+//		 {	
+       while(ADS1255_DRDY()==0){}	  //等待 ADS1255 完成采集
+			 Vol[measuring_count] = ADS1255_ContinuousRead_AdcData(); 
 			 if(measuring_count == 359)
 				{
   			 read_ok_flag = 1;	
 			  }	
 				measuring_count_last = measuring_count;
 				measuring_count++;
-        printf("%d  %d\r\n",measuring_count,read_ok_flag);				
-		  }        	 		 
+				tiaoshi_count++;
+       // printf("%d  %d\r\n",measuring_count,read_ok_flag);				
+//      }        	 		 
 		 EXTI->PR = 1<<2 ;  
    }
 }
@@ -191,7 +191,7 @@ int main(void)
 	
   USART1_Init(115200);//USART1初始化	
 	
-	tim_start();  //定时器14 用于判断  1s内读取次数小于5，清楚标志位
+	//tim_start();  //定时器14 用于判断  1s内读取次数小于5，清楚标志位
 	
 	ADC_ConfigTypeDef ADCConfig;//ADC配置结构体	
 	
@@ -229,6 +229,7 @@ int main(void)
 		
 	while(1)
 	{	 
+		
     if(read_ok_flag == 1)  //读完360个数据  统一通过串口发送给上位机
 		{ 
 			for(i=0;i<360;i++)
@@ -241,7 +242,13 @@ int main(void)
 			
 			read_ok_flag = 0;		
       printf("send  ok \r\n");					
-		}						
+		}
+		
+   if(tiaoshi_count != tiaoshi_count_last)
+		{
+		   printf("%d \r\n",tiaoshi_count);
+			 tiaoshi_count_last = tiaoshi_count;
+		}			
 	}		
 }
 

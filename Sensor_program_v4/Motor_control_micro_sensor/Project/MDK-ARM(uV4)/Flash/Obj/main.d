@@ -59,11 +59,11 @@
 .\flash\obj\main.o: ..\..\Libraries\STM32F4xx_StdPeriph_Driver\inc\stm32f4xx_fsmc.h
 .\flash\obj\main.o: D:\Program Files\Keil_v5\ARM\ARM_Compiler_5.06u7\Bin\..\include\string.h
 .\flash\obj\main.o: ..\..\User\bsp\bsp_can.h
+.\flash\obj\main.o: ..\..\User\includes.h
 .\flash\obj\main.o: ..\..\User\bsp\inc\bsp_uart_fifo.h
 .\flash\obj\main.o: ..\..\User\bsp\inc\bsp_led.h
 .\flash\obj\main.o: ..\..\User\bsp\inc\bsp_key.h
 .\flash\obj\main.o: ..\..\User\bsp\inc\bsp_tim_pwm.h
 .\flash\obj\main.o: ..\..\User\Motor_control.h
-.\flash\obj\main.o: ..\..\User\includes.h
 .\flash\obj\main.o: ..\..\User\Motor_data_process.h
 .\flash\obj\main.o: ..\..\User\delay.h
