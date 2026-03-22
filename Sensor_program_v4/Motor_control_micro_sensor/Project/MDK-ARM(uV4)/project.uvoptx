@@ -147,24 +147,7 @@
           <Name></Name>
         </SetRegEntry>
       </TargetDriverDllRegistry>
-      <Breakpoint>
-        <Bp>
-          <Number>0</Number>
-          <Type>0</Type>
-          <LineNumber>178</LineNumber>
-          <EnabledFlag>1</EnabledFlag>
-          <Address>134219112</Address>
-          <ByteObject>0</ByteObject>
-          <HtxType>0</HtxType>
-          <ManyObjects>0</ManyObjects>
-          <SizeOfObject>0</SizeOfObject>
-          <BreakByAccess>0</BreakByAccess>
-          <BreakIfRCount>1</BreakIfRCount>
-          <Filename>..\..\User\bsp\bsp_can.c</Filename>
-          <ExecCommand></ExecCommand>
-          <Expression>\\output\../../User/bsp/bsp_can.c\178</Expression>
-        </Bp>
-      </Breakpoint>
+      <Breakpoint/>
       <WatchWindow1>
         <Ww>
           <count>0</count>
@@ -200,11 +183,6 @@
           <count>6</count>
           <WinNumber>1</WinNumber>
           <ItemText>MS4005.angle_now - MS4005.motor_rotate_count</ItemText>
-        </Ww>
-        <Ww>
-          <count>7</count>
-          <WinNumber>1</WinNumber>
-          <ItemText>g_tCanRxMsg</ItemText>
         </Ww>
       </WatchWindow1>
       <Tracepoint>

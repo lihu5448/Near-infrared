@@ -58,6 +58,7 @@ void Multiloop_position_closedloop_control1(uint32_t Motor_id, int32_t angleCont
 void Multiloop_position_closedloop_control2(uint32_t Motor_id, uint16_t maxSpeed, int32_t angleControl);
 void Singleloop_position_closedloop_control1(uint32_t Motor_id, uint8_t spinDirection, int32_t angleControl);
 void Singleloop_position_closedloop_control2(uint32_t Motor_id, uint8_t spinDirection, uint16_t maxSpeed,int32_t angleControl);
+
 void Incremental_position_closed_loop1(uint32_t Motor_id,int32_t angleIncrement);
 void Incremental_position_closed_loop2(uint32_t Motor_id,uint32_t maxSpeed,int32_t angleIncrement);
 void Read_the_control_parameters(uint32_t Motor_id,uint8_t index);

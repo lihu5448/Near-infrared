@@ -98,20 +98,15 @@ void EXTI9_5_IRQHandler(void)
 
 void Motor_Init(void)
 {
-//	 uint16_t  target_encoder =  0;
-//	 int32_t target_angle ;
-	 
+ 
 	 delay_ms(2000);  //让电机初始化完成
 	
 	 Motor_operation(Motor_Id); 
 	
 	 delay_ms(100);
 	 
-//	 target_angle = (int32_t)(target_encoder)*100 * 360 / 32768;
-//	 Multiloop_position_closedloop_control1(Motor_Id , target_angle);
-	
-   Multiloop_position_closedloop_control2(Motor_Id ,MaxSpeed , 0);	
-	
+   Singleloop_position_closedloop_control2(Motor_Id, 0x00,MaxSpeed, 0);  //Multiloop_position_closedloop_control2(Motor_Id ,MaxSpeed , 0);	
+
 	 MS4005.angle_last = 0;
 	 MS4005.angle_error = 0;
 	 MS4005.motor_rotate_count = 0; //初始旋转计数
@@ -217,16 +212,19 @@ void Motor_control(void)
 								key_press = 1;
 								GPIO_SetBits(GPIOD, GPIO_Pin_8);  // 测量灯亮
 
-								Motor_operation(Motor_Id); 				
-							  vTaskDelay(pdMS_TO_TICKS(100)); 
-								/* 先回到 0° */   
-								Incremental_position_closed_loop2(Motor_Id, MaxSpeed, 500);	
-
-							  vTaskDelay(pdMS_TO_TICKS(200));   
-								Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
+								Motor_operation(Motor_Id);
+								vTaskDelay(pdMS_TO_TICKS(2));					
+								Read_encoder_data(Motor_Id);
+									
+								vTaskDelay(pdMS_TO_TICKS(500));   // 等待led电流源稳定
+										
+								if(MS4005.encoder >= 16384)
+										Singleloop_position_closedloop_control2(Motor_Id, 0x00,MaxSpeed, 0);
+								else
+										Singleloop_position_closedloop_control2(Motor_Id, 0x01,MaxSpeed, 0);
+								
+								vTaskDelay(pdMS_TO_TICKS(2000));	
 								MS4005.motor_rotate_count = 0;
-							  vTaskDelay(pdMS_TO_TICKS(500));   // 等待led电流源稳定
-
 								xTimerStart(xTimers, 0);
 
 								/* 清空通知残留，避免刚开始稳定计数被旧通知冲掉 */
@@ -237,7 +235,7 @@ void Motor_control(void)
 										/* ========= 发命令（前5°增量，后面位置）========= */
 										if (target_deg == 0)
 										{
-												Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
+												Singleloop_position_closedloop_control2(Motor_Id, 0x00,MaxSpeed, 0);//Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
 										}
 										else if (target_deg <= 5)
 										{
@@ -246,7 +244,7 @@ void Motor_control(void)
 										}
 										else
 										{
-												Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, (int32_t)target_deg * 100);
+												Singleloop_position_closedloop_control2(Motor_Id, 0x00,MaxSpeed, (int32_t)target_deg * 100);//Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, (int32_t)target_deg * 100);
 										}
 
 										/* ========= ticks到位判定 ========= */
@@ -295,14 +293,19 @@ void Motor_control(void)
 							key_press = 1;
 							 GPIO_ResetBits(GPIOD, GPIO_Pin_8);  // 参考灯亮
 
-							/* 先回到 0° */
-							Incremental_position_closed_loop2(Motor_Id, MaxSpeed, 500);	
-							vTaskDelay(100);  
-							Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
-
-							MS4005.motor_rotate_count = 0;
-
+							Motor_operation(Motor_Id);
+							vTaskDelay(pdMS_TO_TICKS(2));					
+							Read_encoder_data(Motor_Id);
+								
 							vTaskDelay(pdMS_TO_TICKS(500));   // 等待led电流源稳定
+									
+							if(MS4005.encoder >= 16384)
+									Singleloop_position_closedloop_control2(Motor_Id, 0x00,MaxSpeed, 0);
+							else
+									Singleloop_position_closedloop_control2(Motor_Id, 0x01,MaxSpeed, 0);
+							
+							vTaskDelay(pdMS_TO_TICKS(2000));	
+							 MS4005.motor_rotate_count = 0;
 
 							xTimerStart(xTimers, 0);
 
@@ -314,7 +317,7 @@ void Motor_control(void)
 									/* ========= 发命令（前5°增量，后面位置）========= */
 									if (target_deg == 0)
 									{
-											Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
+											Singleloop_position_closedloop_control2(Motor_Id, 0x00,MaxSpeed, 0);//Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
 									}
 									else if (target_deg <= 5)
 									{
@@ -323,7 +326,7 @@ void Motor_control(void)
 									}
 									else
 									{
-											Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, (int32_t)target_deg * 100);
+											Singleloop_position_closedloop_control2(Motor_Id, 0x00,MaxSpeed, (int32_t)target_deg * 100);//Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, (int32_t)target_deg * 100);
 									}
 
 									/* ========= ticks到位判定 ========= */
@@ -382,25 +385,25 @@ void Motor_control(void)
 //			/* 有键按下 */
 			 switch (key_test)
 			  {
-case 1:              /* K0键    测量灯亮  开始测量 */
-    if (key_press == 0)
-    {
+				case 1:              /* K0键    测量灯亮  开始测量 */
+				if (key_press == 0)
+				{
         key_press = 1;
         GPIO_SetBits(GPIOD, GPIO_Pin_8);  // 测量灯亮
 			
-				 Motor_operation(Motor_Id); 
-	
-	      delay_ms(500);
-			  //vTaskDelay(pdMS_TO_TICKS(500));   // 等待led电流源稳定
-        /* 先回到 0° */
-        Incremental_position_closed_loop2( Motor_Id,MaxSpeed,6000);	
-	      delay_ms(200);			   
-			  Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
-
+				Motor_operation(Motor_Id);
+			  vTaskDelay(pdMS_TO_TICKS(2));					
+        Read_encoder_data(Motor_Id);
+					
+			  vTaskDelay(pdMS_TO_TICKS(500));   // 等待led电流源稳定
+						
+				if(MS4005.encoder >= 16384)
+					  Singleloop_position_closedloop_control2(Motor_Id, 0x00,MaxSpeed, 0);
+				else
+						Singleloop_position_closedloop_control2(Motor_Id, 0x01,MaxSpeed, 0);
+				
+			  vTaskDelay(pdMS_TO_TICKS(2000));		
         MS4005.motor_rotate_count = 0;
-
-
-
         xTimerStart(xTimers, 0);
 
         /* 清空通知残留，避免刚开始稳定计数被旧通知冲掉 */
@@ -411,7 +414,7 @@ case 1:              /* K0键    测量灯亮  开始测量 */
             /* ========= 发命令（前5°增量，后面位置）========= */
             if (target_deg == 0)
             {
-                Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
+               Singleloop_position_closedloop_control2(Motor_Id, 0x00,MaxSpeed, 0);// Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
             }
             else if (target_deg <= 5)
             {
@@ -420,7 +423,7 @@ case 1:              /* K0键    测量灯亮  开始测量 */
             }
             else
             {
-                Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, (int32_t)target_deg * 100);
+                Singleloop_position_closedloop_control2(Motor_Id, 0x00,MaxSpeed, (int32_t)target_deg * 100);//Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, (int32_t)target_deg * 100);
             }
 
             /* ========= ticks到位判定 ========= */
@@ -461,34 +464,40 @@ case 1:              /* K0键    测量灯亮  开始测量 */
         key_press = 0;
         MS4005.motor_rotate_count = 0;
     }
-    break;
+         break;
 
-	 case 2:			  /* K2键    参考灯正转一圈*/
-     if (key_press == 0)
-     {
-        key_press = 1;
+	     case 2:			  /* K2键    参考灯正转一圈*/
+         if (key_press == 0)
+         {
+         key_press = 1;
          GPIO_ResetBits(GPIOD, GPIO_Pin_8);  // 参考灯亮
+			 
+				Motor_operation(Motor_Id);
+			  vTaskDelay(pdMS_TO_TICKS(2));					
+        Read_encoder_data(Motor_Id);
+					
+			  vTaskDelay(pdMS_TO_TICKS(500));   // 等待led电流源稳定
+						
+				if(MS4005.encoder >= 16384)
+					  Singleloop_position_closedloop_control2(Motor_Id, 0x00,MaxSpeed, 0);
+				else
+						Singleloop_position_closedloop_control2(Motor_Id, 0x01,MaxSpeed, 0);
+				
+			    vTaskDelay(pdMS_TO_TICKS(2000));	
+          MS4005.motor_rotate_count = 0;
 
-        /* 先回到 0° */
-        Incremental_position_closed_loop2(Motor_Id, MaxSpeed, 500);	
-			  vTaskDelay(100);  
-			  Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
 
-        MS4005.motor_rotate_count = 0;
+          xTimerStart(xTimers, 0);
 
-        vTaskDelay(pdMS_TO_TICKS(500));   // 等待led电流源稳定
+          /* 清空通知残留，避免刚开始稳定计数被旧通知冲掉 */
+          ulTaskNotifyTake(pdTRUE, 0xFFFFFFFF);
 
-        xTimerStart(xTimers, 0);
-
-        /* 清空通知残留，避免刚开始稳定计数被旧通知冲掉 */
-        ulTaskNotifyTake(pdTRUE, 0xFFFFFFFF);
-
-        for (target_deg = 0; target_deg <= 360; target_deg++)
-        {
+          for (target_deg = 0; target_deg <= 360; target_deg++)
+          {
             /* ========= 发命令（前5°增量，后面位置）========= */
             if (target_deg == 0)
             {
-                Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
+                Singleloop_position_closedloop_control2(Motor_Id, 0x00,MaxSpeed, 0);//Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, 0);
             }
             else if (target_deg <= 5)
             {
@@ -497,7 +506,7 @@ case 1:              /* K0键    测量灯亮  开始测量 */
             }
             else
             {
-                Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, (int32_t)target_deg * 100);
+                Singleloop_position_closedloop_control2(Motor_Id, 0x00,MaxSpeed, (int32_t)target_deg * 100);//Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, (int32_t)target_deg * 100);
             }
 
             /* ========= ticks到位判定 ========= */
@@ -549,73 +558,7 @@ case 1:              /* K0键    测量灯亮  开始测量 */
 					break;
 				}
 			  key_test = 0;
-			}
-			
-			
-////按键处理代码   
-//		if(key_press != 0)
-//		{
-//		/* 上升沿中断     */
-//		uxBits = xEventGroupWaitBits(Motor_rotate_event,
-//							         BIT_0 | BIT_1,        // 等待两个事件位    
-//							         pdTRUE,  						 // 清除事件位
-//							         pdFALSE,              // 不等待所有位
-//							         0); 	                 // 不等待										
-//			
-//		if((uxBits & BIT_0)== BIT_0 )  // 1度旋转完成
-//			{
-//				//脉冲  
-//	   	  GPIO_SetBits(GPIOD,GPIO_Pin_10);
-//				vTaskDelay(1);  //1ms脉冲
-//		    GPIO_ResetBits(GPIOD,GPIO_Pin_10);
-//				
-//				printf("motor_rotate_count: %d   angle_now:  %.2f   motor_encoder: %d \r\n",MS4005.motor_rotate_count, MS4005.angle_now, MS4005.encoder);
-//        
-//				MS4005.motor_rotate_count++;   
-//				
-//			  if(MS4005.motor_rotate_count <= 5)
-//			    {
-//				 	 Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, MS4005.motor_rotate_count*100);	
-//					 pos_mode_inited = 0;  // 还没进入位置模
-//			  	}
-//        else if(MS4005.motor_rotate_count <= 360)
-//				 {
-//           /* 第一次进入位置模式：把目标对齐到当前整度附近，保证后续单调递增 */
-//           if (!pos_mode_inited)
-//            {
-//              // 用当前角度估算当前位置(0.01°)
-//              now_001deg = (int32_t)(MS4005.angle_now * 100.0f + 0.5f);
-
-//              // 对齐到“当前所在整度”
-//               pos_target_001deg = ((now_001deg + 50) / 100) * 100;
-
-//               // 确保目标至少是当前计数对应的角度（例如第6°时至少600）
-//                if (pos_target_001deg < (int32_t)MS4005.motor_rotate_count * 100)
-//                pos_target_001deg = (int32_t)MS4005.motor_rotate_count * 100;
-
-//               pos_mode_inited = 1;
-//           }
-
-//           /* 后面每次 +1° 的绝对目标（单调递增，不会在0/360边界选反向最短路） */
-//           pos_target_001deg += 100;
-//           Multiloop_position_closedloop_control2(Motor_Id, MaxSpeed, pos_target_001deg);         						 
-//				  }	
-//        else	
-//				{
-//				  MS4005.motor_rotate_count = 0;
-//          pos_mode_inited = 0;
-//          pos_target_001deg = 0;					
-//					xTimerStop(xTimers, 0) ;
-//					key_press = 0;
-//				}					
-//			
-//			}	
-////		else if((uxBits & BIT_1)== BIT_1 )  //
-////			{
-////		    key_press = 0;	
-////				
-////			}
-//		}			
+			}		
 		 vTaskDelay(5);
 	}
 }

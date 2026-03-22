@@ -17,7 +17,7 @@
 #include "includes.h"
 
 void bsp_InitCan2(void);
-uint8_t CAN2_SendMsg_IT(const CanTxMsg *pMsg, TickType_t xTicksToWait);
+uint8_t CAN2_SendMsg_IT(CanTxMsg *g_tCanTxMsg, TickType_t xTicksToWait);
 	
 #endif
 

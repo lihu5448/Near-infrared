@@ -7,7 +7,7 @@ function protocolData = parseVoltageProtocol()
     %DATA_FOLDER = 'D:\Desktop\sensor_data\';
     DATA_FOLDER = 'D:\Desktop\';
     OUTPUT_FOLDER = 'D:\Desktop\sensor_matlab\process_output\';
-    INPUT_FILE = '1.txt';                    % 输入数据文件
+    INPUT_FILE = '12.txt';                    % 输入数据文件
     
     % ==================== 湿度数据设置 ====================
     HUMIDITY_DATA = '6.23%';  % 湿度数据，可以根据需要修改

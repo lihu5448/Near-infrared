@@ -16,7 +16,7 @@
 
 
 double  VolF;
-int32_t Vol[360];
+int32_t Vol[360] = {0};
 
 /*协议说明*/
 //0，1 -》  0x5A,0xA5       协议头
@@ -41,7 +41,6 @@ int32_t tiaoshi_count = 0 ,tiaoshi_count_last = 0;
 *******************************************************************************/
 void ADC_SendData(double Vol)
 {
-
 	int32_t V=(int32_t)(Vol*1000000);
 //	SendBuf[0] =0x5A;
 //	SendBuf[1] =0xA5;
@@ -54,7 +53,10 @@ void ADC_SendData(double Vol)
 //	SendBuf[8] = 0x0D;  // 回车的ASCII码
 //	SendBuf[9] = 0x0A;  // 换行的ASCII码
 	
-	USART1_DmaSendBuf(SendBuf,10);
+	//USART1_DmaSendBuf(SendBuf,10);
+	USART1_SendBuf(SendBuf,10);
+//	for(i=0;i<10;i++)
+//	   printf("%02x",SendBuf[i]);
 }
 
 /*******************************************************************************
@@ -136,6 +138,8 @@ void EXTI0_1_IRQHandler(void)
 			   GPIOF -> ODR  &= ~(1<<0);    //PF0拉低 -》测量LED 电流源使能
          GPIOF -> ODR  |=  1<<1;      //PF1拉高 -》参考LED 电流源失能						
 				 SendBuf[2] =0x01;  //  0x01代表测量光
+				 measuring_count = 0;
+				 read_ok_flag = 0; // 强制打断主循环的发送（如果需要的话）
 		  }
 		else                     //低电平
 		 {
@@ -144,6 +148,8 @@ void EXTI0_1_IRQHandler(void)
 					GPIOF -> ODR  |=  1<<0;       //PF0拉高 -》测量灯 电流源失能
 			    GPIOF -> ODR  &= ~(1<<1);     //PF1拉低 -》参考灯 电流源使能								
 				  SendBuf[2] =0x02;  //  0x00   啥也不是
+				  measuring_count = 0;
+					read_ok_flag = 0; // 强制打断主循环的发送（如果需要的话）
 				}
 		 } 
     EXTI->PR  = 1<<1;//清除中断标志位
@@ -156,19 +162,20 @@ void EXTI2_3_IRQHandler(void)
 {   
    if(( EXTI->PR & (1<<2)) != (uint32_t)RESET )
    {     	 
-//		 if(GPIOA->IDR & (1<<2)) 
-//		 {	
-       while(ADS1255_DRDY()==0){}	  //等待 ADS1255 完成采集
+     if(measuring_count <= 360) 
+      {
+       while(ADS1255_DRDY()==0);	  //等待 ADS1255 完成采集
 			 Vol[measuring_count] = ADS1255_ContinuousRead_AdcData(); 
-			 if(measuring_count == 359)
+				
+			 if(measuring_count == 360)
 				{
   			 read_ok_flag = 1;	
 			  }	
-				measuring_count_last = measuring_count;
+				//measuring_count_last = measuring_count;
 				measuring_count++;
 				tiaoshi_count++;
        // printf("%d  %d\r\n",measuring_count,read_ok_flag);				
-//      }        	 		 
+      }        	 		 
 		 EXTI->PR = 1<<2 ;  
    }
 }
@@ -228,8 +235,7 @@ int main(void)
 	delay_us(15);//等待最少50个ADC时钟周期
 		
 	while(1)
-	{	 
-		
+	{	 		
     if(read_ok_flag == 1)  //读完360个数据  统一通过串口发送给上位机
 		{ 
 			for(i=0;i<360;i++)
@@ -241,14 +247,14 @@ int main(void)
 			measuring_count_last = 0;	
 			
 			read_ok_flag = 0;		
-      printf("send  ok \r\n");					
+//      printf("send  ok \r\n");					
 		}
 		
-   if(tiaoshi_count != tiaoshi_count_last)
-		{
-		   printf("%d \r\n",tiaoshi_count);
-			 tiaoshi_count_last = tiaoshi_count;
-		}			
+//   if(tiaoshi_count != tiaoshi_count_last)
+//		{
+//		   printf("%d  %d\r\n",tiaoshi_count,read_ok_flag);
+//			 tiaoshi_count_last = tiaoshi_count;
+//		}			
 	}		
 }
 

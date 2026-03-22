@@ -206,22 +206,47 @@ void CAN2_TX_IRQHandler(void)
 *	返 回 值: 1 成功，0 失败
 *********************************************************************************************************
 */
-uint8_t CAN2_SendMsg_IT(const CanTxMsg *pMsg, TickType_t xTicksToWait)
+
+uint8_t CAN2_SendMsg_IT(CanTxMsg *pMsg, TickType_t xTicksToWait)
 {
-	if (xQueueSend(xQueue2, pMsg, xTicksToWait) != pdPASS)
-	{
-		return 0;
-	}
+    if (xQueueSend(xQueue2, (void *)pMsg, xTicksToWait) != pdPASS)
+        return 0;
 
-	/*
-	  关键：确保 TX 中断打开。
-	  如果当前邮箱空，打开中断后可能会触发 ISR，
-	  ISR 会从队列取数据并发送。
-	*/
-	CAN_ITConfig(CAN2, CAN_IT_TME, ENABLE);
+    taskENTER_CRITICAL();
 
-	return 1;
+    /* 如果当前邮箱空，主动发送队列中的第一帧，启动发送流程 */
+    if ((CAN2->TSR & (CAN_TSR_TME0 | CAN_TSR_TME1 | CAN_TSR_TME2)) != 0)
+    {
+        CanTxMsg tx;
+        if (xQueueReceive(xQueue2, &tx, 0) == pdPASS)
+        {
+            (void)CAN_Transmit(CAN2, &tx);
+        }
+    }
+
+    /* 开TME中断，后续由ISR续发，队列空则ISR会关闭 */
+    CAN_ITConfig(CAN2, CAN_IT_TME, ENABLE);
+
+    taskEXIT_CRITICAL();
+    return 1;
 }
+
+//uint8_t CAN2_SendMsg_IT(CanTxMsg *g_tCanTxMsg, TickType_t xTicksToWait)
+//{
+//	if (xQueueSend(xQueue2, (void *)g_tCanTxMsg, xTicksToWait) != pdPASS)
+//	{
+//		return 0;
+//	}
+
+//	/*
+//	  关键：确保 TX 中断打开。
+//	  如果当前邮箱空，打开中断后可能会触发 ISR，
+//	  ISR 会从队列取数据并发送。
+//	*/
+//	CAN_ITConfig(CAN2, CAN_IT_TME, ENABLE);
+
+//	return 1;
+//}
 
 
 
